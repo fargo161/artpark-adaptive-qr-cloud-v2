@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS visits (
 
 CREATE INDEX IF NOT EXISTS visits_station_idx ON visits(station);
 CREATE INDEX IF NOT EXISTS visits_created_idx ON visits(created_at DESC);
+CREATE INDEX IF NOT EXISTS access_codes_active_idx ON access_codes(code) WHERE status='active' AND is_test=FALSE;
 
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

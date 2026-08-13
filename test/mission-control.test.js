@@ -7,7 +7,8 @@ import {
   newSessionToken,
   hashSessionToken,
   normalizeOperator,
-  validRepairRoute
+  validRepairRoute,
+  activeDirectoryPage
 } from '../mission-control.js';
 import { normalizeStation } from '../lib.js';
 
@@ -38,6 +39,13 @@ test('five test codes remain valid six-character credentials', () => {
   assert.deepEqual(TEST_CODES, ['TEST01','TEST02','TEST03','TEST04','TEST05']);
 });
 
+test('active receiver directory pagination and sorting are bounded', () => {
+  assert.deepEqual(activeDirectoryPage({}), { sort: 'recent', offset: 0, limit: 50 });
+  assert.deepEqual(activeDirectoryPage({ sort: 'code', offset: '50', limit: '25' }), { sort: 'code', offset: 50, limit: 25 });
+  assert.deepEqual(activeDirectoryPage({ sort: 'progress', offset: '-4', limit: '999' }), { sort: 'progress', offset: 0, limit: 100 });
+  assert.deepEqual(activeDirectoryPage({ sort: 'invalid', limit: '0' }), { sort: 'recent', offset: 0, limit: 50 });
+});
+
 test('schema migration preserves inventory and adds lifecycle, sessions, audit, and test isolation', async () => {
   const schema = await fs.readFile(new URL('../schema.sql', import.meta.url), 'utf8');
   assert.match(schema, /status IN \('unused','active'\)/);
@@ -66,4 +74,20 @@ test('server implements atomic issue, isolated metrics, locked reset, and cookie
   assert.match(server, /HttpOnly; SameSite=Strict/);
   assert.match(server, /DELETE FROM mission_control_sessions WHERE token_hash=\$1/);
   assert.match(server, /status='active', activated_at=NOW\(\)/);
+});
+
+test('active receiver directory is authenticated, read-only, lifecycle-consistent, and ordered', async () => {
+  const server = await fs.readFile(new URL('../server.js', import.meta.url), 'utf8');
+  const start = server.indexOf("app.get('/api/admin/active-receivers'");
+  const end = server.indexOf("app.post('/api/admin/codes/issue'", start);
+  assert.ok(start > 0 && end > start);
+  const endpoint = server.slice(start, end);
+  assert.match(endpoint, /requireAdmin/);
+  assert.match(endpoint, /a\.status='active' AND a\.is_test=FALSE/);
+  assert.match(endpoint, /ORDER BY v\.stage/);
+  assert.match(endpoint, /COUNT\(v\.id\)=4 AS complete/);
+  assert.match(endpoint, /MAX\(v\.created_at\)/);
+  assert.match(endpoint, /LIMIT \$1 OFFSET \$2/);
+  assert.doesNotMatch(endpoint, /\b(?:INSERT|UPDATE|DELETE)\b/);
+  assert.doesNotMatch(endpoint, /status='unused'/);
 });

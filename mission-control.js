@@ -28,3 +28,10 @@ export function validRepairRoute(values, normalizeStation) {
   if (stations.some(value => !value) || new Set(stations).size !== stations.length) return null;
   return stations;
 }
+
+export function activeDirectoryPage(query = {}) {
+  const sort = ['recent', 'code', 'progress'].includes(query.sort) ? query.sort : 'recent';
+  const offset = Math.max(0, Number.parseInt(query.offset, 10) || 0);
+  const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 50));
+  return { sort, offset, limit };
+}

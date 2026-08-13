@@ -11,7 +11,8 @@ import {
   newSessionToken,
   hashSessionToken,
   normalizeOperator,
-  validRepairRoute
+  validRepairRoute,
+  activeDirectoryPage
 } from './mission-control.js';
 import {
   STATIONS,
@@ -322,6 +323,54 @@ app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
     complete: Number(complete.rows[0].count),
     byStation,
     recent: recent.rows.map(r => ({...r, accessCode: formatAccessCode(r.code)}))
+  });
+});
+
+app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
+  const { sort, offset, limit } = activeDirectoryPage(req.query);
+  const orderBy = {
+    recent: 'last_activity DESC, a.code ASC',
+    code: 'a.code ASC',
+    progress: 'progress DESC, last_activity DESC, a.code ASC'
+  }[sort];
+  const result = await pool.query(`
+    SELECT
+      a.code,
+      COUNT(v.id)::int AS progress,
+      COALESCE(
+        JSON_AGG(JSON_BUILD_OBJECT('station',v.station,'stage',v.stage) ORDER BY v.stage)
+          FILTER (WHERE v.id IS NOT NULL),
+        '[]'::json
+      ) AS route,
+      COUNT(v.id)=4 AS complete,
+      GREATEST(
+        COALESCE(MAX(v.created_at), '-infinity'::timestamptz),
+        COALESCE(p.updated_at, '-infinity'::timestamptz),
+        COALESCE(a.activated_at, '-infinity'::timestamptz)
+      ) AS last_activity,
+      COUNT(*) OVER()::int AS total
+    FROM access_codes a
+    LEFT JOIN players p ON p.code=a.code
+    LEFT JOIN visits v ON v.code=a.code
+    WHERE a.status='active' AND a.is_test=FALSE
+    GROUP BY a.code,a.activated_at,p.updated_at
+    ORDER BY ${orderBy}
+    LIMIT $1 OFFSET $2
+  `, [limit, offset]);
+  const total = result.rows[0]?.total || 0;
+  res.json({
+    receivers: result.rows.map(row => ({
+      accessCode: formatAccessCode(row.code),
+      progress: Number(row.progress),
+      route: row.route,
+      complete: row.complete,
+      lastActivity: row.last_activity
+    })),
+    total,
+    offset,
+    limit,
+    hasMore: offset + result.rows.length < total,
+    sort
   });
 });
 

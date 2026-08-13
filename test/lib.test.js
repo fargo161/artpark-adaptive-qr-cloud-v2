@@ -5,12 +5,13 @@ import { STATION_ROUTES, normalizeAccessCode, formatAccessCode, normalizeStation
 
 test('admin controls use explicit DOM references and event listeners without raw admin key', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
-  for (const id of ['passphrase','operator','connect','refresh','logout','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig']) {
+  for (const id of ['passphrase','operator','connect','refresh','logout','refreshActive','activeSort','loadMoreActive','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig']) {
     assert.match(html, new RegExp(`byId\\('${id}'\\)`));
   }
   assert.doesNotMatch(html, /\.(?:onclick|onkeydown)\s*=/);
   assert.match(html, /connectButton\.addEventListener\('click',connectAdmin\)/);
   assert.match(html, /refreshButton\.addEventListener\('click'/);
+  assert.match(html, /loadMoreActiveButton\.addEventListener\('click'/);
   assert.doesNotMatch(html, /ADMIN_KEY|Authorization:\s*`Bearer/);
 });
 

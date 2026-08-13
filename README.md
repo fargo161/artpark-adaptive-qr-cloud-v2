@@ -59,6 +59,7 @@ It shows:
 - unused, active, and complete production-code counts;
 - an atomic **ISSUE NEXT FIELD CODE** control;
 - active receiver count;
+- a paginated Active Receivers directory showing progress, discovery-order route, completion, and latest activity;
 - number of digitally completed routes;
 - scan totals per station;
 - recent scan activity;
@@ -77,6 +78,8 @@ It shows:
 The lifecycle is **UNUSED → ACTIVE → COMPLETE**. **RESET PROGRESS removes Active status and clears the digital route. The code remains valid and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
 
 Mission Control also provides `TEST-01` through `TEST-05`. Test codes use the real authorization, cookie, routing, recovery, and video behavior, but are excluded from production inventory, activity, station-scan, and completion metrics.
+
+The **Active Receivers** directory uses the same lifecycle definition as the Active Receivers counter: production codes with `status=active`. Completed routes remain active and receive a visible `COMPLETE` badge. Reset codes and test credentials do not appear. Results load 50 at a time, most-recent first by default, with code and progress sorting available.
 
 Video URL changes live in PostgreSQL, so changing them does not require new QR codes.
 
