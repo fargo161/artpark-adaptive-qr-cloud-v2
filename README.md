@@ -56,7 +56,7 @@ Open `/admin`, enter `MISSION_CONTROL_PASSPHRASE`, and optionally enter an opera
 
 It shows:
 
-- unused, issued, active, and complete production-code counts;
+- unused, active, and complete production-code counts;
 - an atomic **ISSUE NEXT FIELD CODE** control;
 - active receiver count;
 - number of digitally completed routes;
@@ -70,12 +70,11 @@ It shows:
 
 ### Code lifecycle
 
-- **UNUSED**: valid production inventory that has not been issued or activated.
-- **ISSUED**: reserved by Mission Control but not yet entered by a player.
+- **UNUSED**: a valid production code that has not yet been entered successfully by a player. Displaying, copying, printing, or handing out a code does not change this state.
 - **ACTIVE**: successfully entered and representing a current player/group journey.
 - **COMPLETE**: active with all four unique digital station visits.
 
-**RESET PROGRESS removes Active status and clears the digital route. The code remains valid and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
+The lifecycle is **UNUSED → ACTIVE → COMPLETE**. **RESET PROGRESS removes Active status and clears the digital route. The code remains valid and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
 
 Mission Control also provides `TEST-01` through `TEST-05`. Test codes use the real authorization, cookie, routing, recovery, and video behavior, but are excluded from production inventory, activity, station-scan, and completion metrics.
 

@@ -138,7 +138,7 @@ async function setContentConfig(value) {
 }
 
 async function playerRecord(code, client = pool) {
-  const access = await client.query('SELECT code,status,issued_at,activated_at,is_test FROM access_codes WHERE code=$1', [code]);
+  const access = await client.query('SELECT code,status,allocated_at,activated_at,is_test FROM access_codes WHERE code=$1', [code]);
   if (!access.rows[0]) return null;
   const player = await client.query('SELECT code, created_at, updated_at FROM players WHERE code=$1', [code]);
   const visits = await client.query('SELECT station, stage, created_at FROM visits WHERE code=$1 ORDER BY stage', [code]);
@@ -150,7 +150,7 @@ async function playerRecord(code, client = pool) {
     test: access.rows[0].is_test,
     visits: publicVisits(visits.rows),
     complete,
-    issuedAt: access.rows[0].issued_at,
+    allocatedAt: access.rows[0].allocated_at,
     activatedAt: access.rows[0].activated_at,
     createdAt: player.rows[0]?.created_at || null,
     updatedAt: player.rows[0]?.updated_at || null
@@ -312,13 +312,12 @@ app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
     pool.query('SELECT v.station,COUNT(*)::int AS count FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE GROUP BY v.station'),
     pool.query('SELECT v.code,v.station,v.stage,v.created_at FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE ORDER BY v.created_at DESC LIMIT 20')
   ]);
-  const counts = { unused: 0, issued: 0, active: 0 };
+  const counts = { unused: 0, active: 0 };
   for (const row of inventory.rows) counts[row.status] = Number(row.count);
   const byStation = Object.fromEntries(STATIONS.map(s => [s, 0]));
   for (const row of stationCounts.rows) byStation[row.station] = Number(row.count);
   res.json({
     unused: counts.unused,
-    issued: counts.issued,
     activated: counts.active,
     complete: Number(complete.rows[0].count),
     byStation,
@@ -327,18 +326,18 @@ app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
 });
 
 app.post('/api/admin/codes/issue', requireAdmin, async (req, res) => {
-  const issued = await withTransaction(async client => {
+  const allocated = await withTransaction(async client => {
     const result = await client.query(
-      "SELECT code FROM access_codes WHERE status='unused' AND is_test=FALSE ORDER BY code FOR UPDATE SKIP LOCKED LIMIT 1"
+      "SELECT code FROM access_codes WHERE status='unused' AND allocated_at IS NULL AND is_test=FALSE ORDER BY code FOR UPDATE SKIP LOCKED LIMIT 1"
     );
     if (!result.rows[0]) return null;
     const code = result.rows[0].code;
-    await client.query("UPDATE access_codes SET status='issued',issued_at=NOW(),activated_at=NULL WHERE code=$1", [code]);
-    await audit(client, 'code_issued', code, req.missionOperator);
+    await client.query('UPDATE access_codes SET allocated_at=NOW(),activated_at=NULL WHERE code=$1', [code]);
+    await audit(client, 'code_allocated', code, req.missionOperator);
     return code;
   });
-  if (!issued) return res.status(409).json({ error: 'NO_UNUSED_CODES' });
-  res.status(201).json({ accessCode: formatAccessCode(issued), status: 'issued' });
+  if (!allocated) return res.status(409).json({ error: 'NO_UNUSED_CODES' });
+  res.status(201).json({ accessCode: formatAccessCode(allocated), status: 'unused' });
 });
 
 app.get('/api/admin/player/:accessCode', requireAdmin, async (req, res) => {
@@ -356,7 +355,7 @@ app.post('/api/admin/player/:accessCode/reset', requireAdmin, async (req, res) =
     await client.query('SELECT code FROM access_codes WHERE code=$1 FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
     await client.query('DELETE FROM players WHERE code=$1', [code]);
-    await client.query("UPDATE access_codes SET status='unused',issued_at=NULL,activated_at=NULL WHERE code=$1", [code]);
+    await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     await audit(client, 'player_reset', code, req.missionOperator);
   });
   res.json({ player: await playerRecord(code) });
@@ -381,7 +380,7 @@ app.put('/api/admin/player/:accessCode/visits', requireAdmin, async (req, res) =
       await client.query("UPDATE access_codes SET status='active',activated_at=COALESCE(activated_at,NOW()) WHERE code=$1", [code]);
     } else {
       await client.query('DELETE FROM players WHERE code=$1', [code]);
-      await client.query("UPDATE access_codes SET status='unused',issued_at=NULL,activated_at=NULL WHERE code=$1", [code]);
+      await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     }
     await audit(client, 'route_repaired', code, req.missionOperator, { stations });
   });
@@ -408,7 +407,7 @@ app.post('/api/admin/tests/:accessCode/reset', requireAdmin, async (req, res) =>
     await client.query('SELECT code FROM access_codes WHERE code=$1 AND is_test=TRUE FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
     await client.query('DELETE FROM players WHERE code=$1', [code]);
-    await client.query("UPDATE access_codes SET status='unused',issued_at=NULL,activated_at=NULL WHERE code=$1 AND is_test=TRUE", [code]);
+    await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1 AND is_test=TRUE", [code]);
     await audit(client, 'test_reset', code, req.missionOperator);
   });
   res.json({ player: await playerRecord(code) });

@@ -4,15 +4,28 @@ CREATE TABLE IF NOT EXISTS access_codes (
   activated_at TIMESTAMPTZ
 );
 
-ALTER TABLE access_codes ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ;
+ALTER TABLE access_codes ADD COLUMN IF NOT EXISTS allocated_at TIMESTAMPTZ;
 ALTER TABLE access_codes ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='access_codes' AND column_name='issued_at'
+  ) THEN
+    EXECUTE 'UPDATE access_codes SET allocated_at=COALESCE(allocated_at,issued_at)';
+    ALTER TABLE access_codes DROP COLUMN issued_at;
+  END IF;
+END $$;
+
+UPDATE access_codes SET status='unused' WHERE status='issued';
+
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_constraint
     WHERE conname='access_codes_status_check'
       AND conrelid='access_codes'::regclass
-      AND pg_get_constraintdef(oid) NOT LIKE '%issued%'
+      AND pg_get_constraintdef(oid) LIKE '%issued%'
   ) THEN
     ALTER TABLE access_codes DROP CONSTRAINT access_codes_status_check;
   END IF;
@@ -20,7 +33,7 @@ BEGIN
     SELECT 1 FROM pg_constraint
     WHERE conname='access_codes_status_check' AND conrelid='access_codes'::regclass
   ) THEN
-    ALTER TABLE access_codes ADD CONSTRAINT access_codes_status_check CHECK (status IN ('unused','issued','active'));
+    ALTER TABLE access_codes ADD CONSTRAINT access_codes_status_check CHECK (status IN ('unused','active'));
   END IF;
 END $$;
 
