@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { STATION_ROUTES, normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits } from '../lib.js';
+import { STATION_ROUTES, START_END_ROUTE, normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits } from '../lib.js';
 
 test('admin controls use explicit DOM references and event listeners without raw admin key', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
@@ -22,6 +22,7 @@ test('all four public station routes are registered explicitly', () => {
     '/s/access',
     '/s/sensory'
   ]);
+  assert.equal(START_END_ROUTE, '/s/start-end');
 });
 
 test('access codes normalize and format', () => {

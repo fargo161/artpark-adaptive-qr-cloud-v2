@@ -5,6 +5,14 @@
     "message": "A FIELD ACCESS CODE IS REQUIRED TO OPEN THIS TRANSMISSION.",
     "videoUrl": ""
   },
+  "startEnd": {
+    "startLabel": "OPENING TRANSMISSION",
+    "startIntro": "LOCAL RECEIVER ONLINE. FUNCTIONAL ROUTE AWAITS INITIAL CONTACT.",
+    "startVideoUrl": "",
+    "endLabel": "FINAL TRANSMISSION",
+    "endIntro": "ALL FOUR FUNCTIONAL SIGNALS CONFIRMED. CONVERGENCE AVAILABLE.",
+    "endVideoUrl": ""
+  },
   "stations": {
     "escape": {"label": "EGRESS", "function": "Escape", "subtitle": "Exit Conditions"},
     "attention": {"label": "CONTACT", "function": "Attention", "subtitle": "Communications Desk"},

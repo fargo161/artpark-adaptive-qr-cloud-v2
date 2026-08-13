@@ -1,5 +1,6 @@
 export const STATIONS = ['escape', 'attention', 'access', 'sensory'];
 export const STATION_ROUTES = STATIONS.map(station => `/s/${station}`);
+export const START_END_ROUTE = '/s/start-end';
 
 export function normalizeStation(value) {
   const station = String(value || '').toLowerCase().trim();
@@ -35,6 +36,12 @@ export function safeConfigForPlayer(config) {
   return {
     eventName: config.eventName,
     locked: config.locked,
+    startEnd: {
+      startLabel: config.startEnd?.startLabel,
+      startIntro: config.startEnd?.startIntro,
+      endLabel: config.startEnd?.endLabel,
+      endIntro: config.startEnd?.endIntro
+    },
     stations: config.stations,
     stages: config.stages
   };

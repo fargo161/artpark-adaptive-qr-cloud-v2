@@ -39,6 +39,12 @@ After you have a real domain, print QRs for:
 
 The QR contains only the stable station address. It does **not** contain a video URL. You can change the video routing later without reprinting the QR.
 
+## Start/End framing station
+
+`/s/start-end` is one framing station used for both the opening and closing transmission. It is not a fifth Functional Behavior station and never participates in Stage 1–4. Before the four functional visits are complete it shows START; after all four are complete it shows END. A valid code may be activated at Start/End while retaining an empty `0 / 4` functional route, so the first functional station still becomes Stage 1. Reset returns the same code to the START gate/state.
+
+Start/End activity is intentionally not inserted into `visits` or Recent Signal Activity, keeping functional scan totals and route history unambiguous. Test codes use the same framing logic and remain excluded from production metrics.
+
 ## What mission control actually is
 
 The server and database are the real mission control. `/admin` is only a monitor/control window.
@@ -113,6 +119,12 @@ The admin dashboard accepts:
 - normal YouTube URLs (embedded automatically);
 - direct `.mp4`, `.webm`, or `.ogg` URLs (native mobile video player);
 - other external URLs (open as external transmission).
+
+Mission Control preserves those 17 fields and adds `START/END // START VIDEO` and `START/END // END VIDEO`. Existing persisted values are merged with these new empty defaults rather than overwritten.
+
+## Mission Control QR Code Generator
+
+The authenticated `/admin` dashboard generates five QRs: Start/End, Access, Attention, Escape, and Sensory. Every displayed URL, QR preview, PNG, and SVG derives from the same `PUBLIC_BASE_URL` value (falling back to the current request host only when it is not configured). The generator does not change player or database state. Always verify the displayed hostname is the intended permanent print destination before mass printing.
 
 For field reliability, short 720p H.264 MP4 files on a CDN/object-storage service are a strong eventual choice. The current broadcast/VHS aesthetic does not require 4K delivery.
 

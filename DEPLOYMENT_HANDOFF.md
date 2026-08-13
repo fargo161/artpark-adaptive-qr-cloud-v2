@@ -42,6 +42,12 @@ Event staff open `/admin`, enter the shared `MISSION_CONTROL_PASSPHRASE`, and re
 
 Production codes move through `UNUSED → ACTIVE → COMPLETE`. Showing, copying, printing, or handing out a code does not change its `UNUSED` lifecycle state. Reset deletes the digital visits, removes Active status, and returns the still-valid code to a reusable pre-play state. Test codes use real routing but are excluded from production metrics.
 
+## Start/End and QR generation
+
+`/s/start-end` derives START versus END from the existing four-visit completion record. Authorization there may activate a code but never inserts a functional visit or consumes Stage 1. Mission Control adds two persisted video fields, `startEnd.startVideoUrl` and `startEnd.endVideoUrl`, using migration-safe defaults.
+
+The authenticated QR Code Generator produces Start/End plus the four functional station QRs as 1200px PNG and SVG. URLs derive from `PUBLIC_BASE_URL`; verify the displayed hostname before mass printing. No additional environment variable or database state is required.
+
 ## Concurrency semantics
 
 Station scan is transactional:

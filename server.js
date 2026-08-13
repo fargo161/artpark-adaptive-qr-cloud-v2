@@ -1,4 +1,5 @@
 import express from 'express';
+import QRCode from 'qrcode';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,12 +18,14 @@ import {
 import {
   STATIONS,
   STATION_ROUTES,
+  START_END_ROUTE,
   normalizeStation,
   normalizeAccessCode,
   formatAccessCode,
   publicVisits,
   safeConfigForPlayer
 } from './lib.js';
+import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -122,8 +125,23 @@ async function getDefaultConfig() {
 
 async function getContentConfig(client = pool) {
   const result = await client.query("SELECT value FROM app_settings WHERE key='content_config'");
-  if (result.rows[0]?.value) return result.rows[0].value;
   const defaults = await getDefaultConfig();
+  if (result.rows[0]?.value) {
+    const stored = result.rows[0].value;
+    const merged = {
+      ...defaults,
+      ...stored,
+      locked: { ...defaults.locked, ...(stored.locked || {}) },
+      startEnd: { ...defaults.startEnd, ...(stored.startEnd || {}) },
+      stations: { ...defaults.stations, ...(stored.stations || {}) },
+      stages: { ...defaults.stages, ...(stored.stages || {}) },
+      videos: { ...defaults.videos, ...(stored.videos || {}) }
+    };
+    if (!stored.startEnd) {
+      await client.query("UPDATE app_settings SET value=$1::jsonb,updated_at=NOW() WHERE key='content_config'", [JSON.stringify(merged)]);
+    }
+    return merged;
+  }
   await client.query(
     "INSERT INTO app_settings(key,value) VALUES('content_config',$1::jsonb) ON CONFLICT (key) DO NOTHING",
     [JSON.stringify(defaults)]
@@ -271,7 +289,34 @@ app.post('/api/scan/:station', async (req, res) => {
   }
 });
 
+app.post('/api/start-end', async (req, res) => {
+  const code = codeFromRequest(req);
+  if (!code) return res.status(401).json({ error: 'ACCESS_REQUIRED' });
+  const access = await pool.query('SELECT status FROM access_codes WHERE code=$1', [code]);
+  if (!access.rows[0]) return res.status(403).json({ error: 'ACCESS_CODE_INVALID' });
+  if (access.rows[0].status !== 'active') {
+    clearPlayerCookie(res);
+    return res.status(401).json({ error: 'ACCESS_REQUIRED' });
+  }
+  const player = await playerRecord(code);
+  const config = await getContentConfig();
+  const framingState = player.complete ? 'end' : 'start';
+  res.json({
+    player,
+    framingState,
+    stationMeta: {
+      label: framingState === 'end' ? config.startEnd.endLabel : config.startEnd.startLabel,
+      intro: framingState === 'end' ? config.startEnd.endIntro : config.startEnd.startIntro
+    },
+    videoUrl: framingState === 'end' ? config.startEnd.endVideoUrl : config.startEnd.startVideoUrl
+  });
+});
+
 app.get(STATION_ROUTES, (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'station.html'));
+});
+
+app.get(START_END_ROUTE, (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'station.html'));
 });
 
@@ -440,6 +485,39 @@ app.get('/api/admin/tests', requireAdmin, async (_req, res) => {
   const records = [];
   for (const code of TEST_CODES) records.push(await playerRecord(code));
   res.json({ tests: records });
+});
+
+app.get('/api/admin/qr', requireAdmin, (req, res) => {
+  const configuredBase = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
+  const fallbackBase = `${req.protocol}://${req.get('host')}`;
+  const baseUrl = configuredBase || fallbackBase;
+  res.json({
+    baseUrl,
+    hostSource: configuredBase ? 'PUBLIC_BASE_URL' : 'CURRENT REQUEST HOST',
+    printWarning: 'Verify this hostname is the intended permanent print destination before mass printing.',
+    destinations: qrDestinations(baseUrl)
+  });
+});
+
+app.get('/api/admin/qr/:slug.:format', requireAdmin, async (req, res) => {
+  const configuredBase = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
+  const baseUrl = configuredBase || `${req.protocol}://${req.get('host')}`;
+  const destination = qrDestinations(baseUrl).find(item => item.slug === req.params.slug);
+  if (!destination) return res.status(404).json({ error: 'QR_DESTINATION_NOT_FOUND' });
+  const options = { margin: 4, errorCorrectionLevel: 'H' };
+  if (req.params.format === 'png') {
+    const png = await QRCode.toBuffer(destination.url, { ...options, type: 'png', width: 1200 });
+    res.set('Content-Type', 'image/png');
+    if (req.query.download === '1') res.set('Content-Disposition', `attachment; filename="artpark-${destination.slug}.png"`);
+    return res.send(png);
+  }
+  if (req.params.format === 'svg') {
+    const svg = await QRCode.toString(destination.url, { ...options, type: 'svg' });
+    res.set('Content-Type', 'image/svg+xml');
+    if (req.query.download === '1') res.set('Content-Disposition', `attachment; filename="artpark-${destination.slug}.svg"`);
+    return res.send(svg);
+  }
+  res.status(400).json({ error: 'QR_FORMAT_INVALID' });
 });
 
 app.post('/api/admin/tests/:accessCode/open', requireAdmin, async (req, res) => {
