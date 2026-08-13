@@ -1,0 +1,26 @@
+{
+  "eventName": "ARTPARK 2026",
+  "locked": {
+    "headline": "RECEIVER NOT AUTHORIZED",
+    "message": "A FIELD ACCESS CODE IS REQUIRED TO OPEN THIS TRANSMISSION.",
+    "videoUrl": ""
+  },
+  "stations": {
+    "escape": {"label": "EGRESS", "function": "Escape", "subtitle": "Exit Conditions"},
+    "attention": {"label": "CONTACT", "function": "Attention", "subtitle": "Communications Desk"},
+    "access": {"label": "ACQUISITION", "function": "Access", "subtitle": "Supply Desk"},
+    "sensory": {"label": "RESONANCE", "function": "Sensory", "subtitle": "Internal Weather"}
+  },
+  "stages": {
+    "1": {"label": "DETECTION", "intro": "INITIAL SIGNAL CONTACT CONFIRMED."},
+    "2": {"label": "PATTERN", "intro": "SECOND FREQUENCY CONFIRMED. THIS IS NOT AN ISOLATED EVENT."},
+    "3": {"label": "ANOMALY", "intro": "THREE SIGNALS VERIFIED. SOURCE REMAINS UNIDENTIFIED."},
+    "4": {"label": "CONVERGENCE WARNING", "intro": "ALL FOUR FREQUENCIES CONFIRMED. A FIFTH READING SHOULD BE PRESENT."}
+  },
+  "videos": {
+    "escape": {"1": "", "2": "", "3": "", "4": ""},
+    "attention": {"1": "", "2": "", "3": "", "4": ""},
+    "access": {"1": "", "2": "", "3": "", "4": ""},
+    "sensory": {"1": "", "2": "", "3": "", "4": ""}
+  }
+}

@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: artpark
+      POSTGRES_PASSWORD: artpark
+      POSTGRES_DB: artpark
+    ports:
+      - "5432:5432"
+    volumes:
+      - artpark_pg:/var/lib/postgresql/data
+  app:
+    build: .
+    depends_on:
+      - db
+    environment:
+      PORT: 3000
+      NODE_ENV: development
+      DATABASE_URL: postgres://artpark:artpark@db:5432/artpark
+      ADMIN_KEY: local-development-only
+      PUBLIC_BASE_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+volumes:
+  artpark_pg:

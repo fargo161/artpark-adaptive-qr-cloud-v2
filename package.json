@@ -1,0 +1,21 @@
+{
+  "name": "artpark-adaptive-qr-cloud-v2",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Cloud-ready adaptive QR video router for ARTPARK 2026",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "qr": "node scripts/generate-qr.js",
+    "codes:import": "node scripts/import-codes.js",
+    "codes:generate": "node scripts/generate-codes.js"
+  },
+  "engines": {"node": ">=20"},
+  "dependencies": {
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "qrcode": "^1.5.4"
+  }
+}

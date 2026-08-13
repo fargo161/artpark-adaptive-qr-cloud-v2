@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ARTPARK Signal Receiver</title><link rel="stylesheet" href="/styles.css"></head>
+<body><main><section class="frame">
+<div class="kicker">ARTPARK 2026 // LOCAL RECEIVER</div>
+<h1 id="stationTitle">SIGNAL</h1><div id="stageLabel" class="stage">STANDBY</div>
+<div id="signalText" class="signal">CHECKING RECEIVER AUTHORIZATION.</div>
+
+<section id="gate" class="hidden">
+  <div id="lockedMedia" class="video"><div><strong id="lockedHeadline">RECEIVER NOT AUTHORIZED</strong><div id="lockedMessage" class="meta"></div></div></div>
+  <label for="accessCode">FIELD ACCESS CODE</label>
+  <input id="accessCode" autocapitalize="characters" autocomplete="off" placeholder="ABC-123" maxlength="7">
+  <div class="toolbar"><button id="authorizeButton">AUTHORIZE RECEIVER</button></div>
+  <div id="gateError" class="meta error"></div>
+</section>
+
+<section id="authorized" class="hidden">
+  <div class="progress" id="progress"></div>
+  <div id="mediaBox" class="video"><div><strong id="videoStatus">VIDEO ROUTE PENDING</strong><div id="videoMeta" class="meta"></div></div></div>
+  <div class="meta">FIELD ACCESS: <code id="fieldCode">------</code><br>Same code restores this group's record on another device.</div>
+</section>
+
+<section id="retry" class="hidden">
+  <div class="signal"><strong>SIGNAL DEGRADED</strong><br><span class="meta">Your field record is safe. Move to stronger cellular service and retry.</span></div>
+  <button id="retryButton">RETRY TRANSMISSION</button>
+</section>
+</section></main>
+<script>
+const station = location.pathname.split('/').filter(Boolean).pop();
+let config = null;
+function normalizeCode(v){return String(v||'').toUpperCase().replace(/[^A-Z0-9]/g,'')}
+function formatCode(v){const c=normalizeCode(v);return c.length===6?`${c.slice(0,3)}-${c.slice(3)}`:c}
+function youtubeEmbed(url){try{const u=new URL(url);if(u.hostname.includes('youtu.be'))return `https://www.youtube.com/embed/${u.pathname.slice(1)}`;if(u.hostname.includes('youtube.com')){const id=u.searchParams.get('v');if(id)return `https://www.youtube.com/embed/${id}`;if(u.pathname.startsWith('/embed/'))return url}}catch{}return null}
+function renderMedia(el,url,fallback){el.innerHTML='';if(!url){el.innerHTML=`<div><strong>${fallback}</strong><div class="meta">TRANSMISSION SLOT NOT YET ASSIGNED.</div></div>`;return}const yt=youtubeEmbed(url);if(yt){const f=document.createElement('iframe');f.src=yt;f.allow='accelerometer; autoplay; encrypted-media; picture-in-picture';f.allowFullscreen=true;el.appendChild(f);return}if(/\.(mp4|webm|ogg)(\?|$)/i.test(url)){const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;v.preload='metadata';el.appendChild(v);return}el.innerHTML=`<div><strong>${fallback}</strong><div class="meta">External transmission ready.</div><p><a class="button" target="_blank" rel="noopener" href="${url.replace(/"/g,'&quot;')}">OPEN TRANSMISSION</a></p></div>`}
+function show(id){for(const x of ['gate','authorized','retry'])document.getElementById(x).classList.add('hidden');document.getElementById(id).classList.remove('hidden')}
+function progress(visits){const map=Object.fromEntries(visits.map(v=>[v.station,v.stage]));document.getElementById('progress').innerHTML=['escape','attention','access','sensory'].map(k=>`<div class="dot ${map[k]?'on':''}">${k.toUpperCase()}${map[k]?` · ${map[k]}`:''}</div>`).join('')}
+function showGate(){show('gate');document.getElementById('stageLabel').textContent='ACCESS REQUIRED';document.getElementById('signalText').textContent=config?.locked?.message||'A FIELD ACCESS CODE IS REQUIRED.';document.getElementById('lockedHeadline').textContent=config?.locked?.headline||'RECEIVER NOT AUTHORIZED';document.getElementById('lockedMessage').textContent=config?.locked?.message||'';renderMedia(document.getElementById('lockedMedia'),config?.locked?.videoUrl,'LOCKED TRANSMISSION')}
+async function scan(){try{const r=await fetch(`/api/scan/${station}`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const d=await r.json();if(r.status===401||r.status===403){showGate();return}if(!r.ok)throw new Error(d.error||'SIGNAL_TEMPORARILY_UNAVAILABLE');show('authorized');document.getElementById('stationTitle').textContent=d.stationMeta.label;document.getElementById('stageLabel').textContent=`TRANSMISSION ${d.stage} // ${d.stageMeta.label}`;document.getElementById('signalText').textContent=d.duplicate?`SIGNAL ALREADY VERIFIED. REPLAYING TRANSMISSION ${d.stage}.`:d.stageMeta.intro;document.getElementById('fieldCode').textContent=d.player.accessCode;progress(d.player.visits);renderMedia(document.getElementById('mediaBox'),d.videoUrl,`${d.stationMeta.subtitle.toUpperCase()} // VIDEO SLOT ${d.stage}`)}catch(e){show('retry');document.getElementById('signalText').textContent='SIGNAL TEMPORARILY UNAVAILABLE.'}}
+async function authorize(){const code=normalizeCode(document.getElementById('accessCode').value);const err=document.getElementById('gateError');err.textContent='';if(code.length!==6){err.textContent='ENTER THE SIX-CHARACTER CODE PROVIDED AT CONCIERGE.';return}try{const r=await fetch('/api/access',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({accessCode:code})});const d=await r.json();if(!r.ok){err.textContent=d.error==='ACCESS_CODE_INVALID'?'ACCESS CODE NOT RECOGNIZED.':(d.error||'AUTHORIZATION FAILED.');return}document.getElementById('signalText').textContent=d.newlyActivated?'FIELD CORRESPONDENT VERIFIED. RECEIVER ONLINE.':'FIELD RECORD RESTORED. RECEIVER ONLINE.';await scan()}catch{show('retry')}}
+document.getElementById('authorizeButton').onclick=authorize;document.getElementById('accessCode').onkeydown=e=>{if(e.key==='Enter')authorize()};document.getElementById('retryButton').onclick=scan;
+(async()=>{try{config=await (await fetch('/api/config')).json();await scan()}catch{show('retry')}})();
+</script></body></html>
