@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { pool, migrate, withTransaction, healthCheck } from './db.js';
 import {
   STATIONS,
+  STATION_ROUTES,
   normalizeStation,
   normalizeAccessCode,
   formatAccessCode,
@@ -215,8 +216,7 @@ app.post('/api/scan/:station', async (req, res) => {
   }
 });
 
-app.get('/s/:station', (req, res) => {
-  if (!normalizeStation(req.params.station)) return res.status(404).send('Unknown station');
+app.get(STATION_ROUTES, (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'station.html'));
 });
 

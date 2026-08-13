@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits } from '../lib.js';
+import { STATION_ROUTES, normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits } from '../lib.js';
+
+test('all four public station routes are registered explicitly', () => {
+  assert.deepEqual(STATION_ROUTES, [
+    '/s/escape',
+    '/s/attention',
+    '/s/access',
+    '/s/sensory'
+  ]);
+});
 
 test('access codes normalize and format', () => {
   assert.equal(normalizeAccessCode('abc-234'), 'ABC234');

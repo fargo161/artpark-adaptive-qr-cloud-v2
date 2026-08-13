@@ -1,4 +1,5 @@
 export const STATIONS = ['escape', 'attention', 'access', 'sensory'];
+export const STATION_ROUTES = STATIONS.map(station => `/s/${station}`);
 
 export function normalizeStation(value) {
   const station = String(value || '').toLowerCase().trim();
