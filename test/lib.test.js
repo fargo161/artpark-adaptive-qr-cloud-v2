@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { STATION_ROUTES, normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits } from '../lib.js';
 
-test('admin controls use explicit DOM references and event listeners', async () => {
+test('admin controls use explicit DOM references and event listeners without raw admin key', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
-  for (const id of ['adminKey','connect','refresh','logout','lookupCode','lookup','saveRoute','resetPlayer','saveConfig']) {
-    assert.match(html, new RegExp(`document\\.getElementById\\('${id}'\\)`));
+  for (const id of ['passphrase','operator','connect','refresh','logout','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig']) {
+    assert.match(html, new RegExp(`byId\\('${id}'\\)`));
   }
   assert.doesNotMatch(html, /\.(?:onclick|onkeydown)\s*=/);
   assert.match(html, /connectButton\.addEventListener\('click',connectAdmin\)/);
-  assert.match(html, /refreshButton\.addEventListener\('click',refreshDashboard\)/);
+  assert.match(html, /refreshButton\.addEventListener\('click'/);
+  assert.doesNotMatch(html, /ADMIN_KEY|Authorization:\s*`Bearer/);
 });
 
 test('all four public station routes are registered explicitly', () => {

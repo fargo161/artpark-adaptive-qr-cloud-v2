@@ -1,5 +1,11 @@
 # ARTPARK 2026 — Field Operations Quickstart
 
+## Mission Control
+
+Open `/admin` on any internet-connected phone or laptop and enter the shared team passphrase. Use **ISSUE NEXT FIELD CODE** instead of opening the production CSV. `UNUSED`, `ISSUED`, `ACTIVE`, and `COMPLETE` describe each production credential's lifecycle. Select **LOG OUT** when finished.
+
+`RESET PROGRESS` clears the digital route and removes Active status, but keeps the code valid for a fresh Stage 1 activation later. It does not affect physical stamps. `TEST-01` through `TEST-05` exercise the real routing system without changing event counts.
+
 ## What you need at concierge
 
 Minimum powerless setup:

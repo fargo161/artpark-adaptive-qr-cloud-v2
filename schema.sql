@@ -1,8 +1,28 @@
 CREATE TABLE IF NOT EXISTS access_codes (
   code TEXT PRIMARY KEY,
-  status TEXT NOT NULL DEFAULT 'unused' CHECK (status IN ('unused','active')),
+  status TEXT NOT NULL DEFAULT 'unused',
   activated_at TIMESTAMPTZ
 );
+
+ALTER TABLE access_codes ADD COLUMN IF NOT EXISTS issued_at TIMESTAMPTZ;
+ALTER TABLE access_codes ADD COLUMN IF NOT EXISTS is_test BOOLEAN NOT NULL DEFAULT FALSE;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname='access_codes_status_check'
+      AND conrelid='access_codes'::regclass
+      AND pg_get_constraintdef(oid) NOT LIKE '%issued%'
+  ) THEN
+    ALTER TABLE access_codes DROP CONSTRAINT access_codes_status_check;
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname='access_codes_status_check' AND conrelid='access_codes'::regclass
+  ) THEN
+    ALTER TABLE access_codes ADD CONSTRAINT access_codes_status_check CHECK (status IN ('unused','issued','active'));
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS players (
   code TEXT PRIMARY KEY REFERENCES access_codes(code) ON DELETE CASCADE,
@@ -28,3 +48,28 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value JSONB NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS mission_control_sessions (
+  token_hash TEXT PRIMARY KEY,
+  operator TEXT NOT NULL DEFAULT 'TEAM',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS mission_control_sessions_expires_idx ON mission_control_sessions(expires_at);
+
+CREATE TABLE IF NOT EXISTS mission_control_audit (
+  id BIGSERIAL PRIMARY KEY,
+  action TEXT NOT NULL,
+  code TEXT,
+  operator TEXT NOT NULL DEFAULT 'TEAM',
+  detail JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+UPDATE access_codes a SET status='active'
+WHERE EXISTS (SELECT 1 FROM players p WHERE p.code=a.code) AND a.status <> 'active';
+
+INSERT INTO access_codes(code,status,is_test)
+VALUES ('TEST01','unused',TRUE),('TEST02','unused',TRUE),('TEST03','unused',TRUE),('TEST04','unused',TRUE),('TEST05','unused',TRUE)
+ON CONFLICT (code) DO UPDATE SET is_test=TRUE;

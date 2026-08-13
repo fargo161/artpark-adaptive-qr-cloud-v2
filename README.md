@@ -48,14 +48,16 @@ You can close your laptop, lose your hotspot, or have no power at concierge and 
 1. the cloud deployment is healthy; and
 2. their phones have cellular data.
 
-The admin page can be opened from any internet-connected phone/laptop with the `ADMIN_KEY`.
+The admin page can be opened from any internet-connected phone or laptop with the shared team Mission Control passphrase. Team operators never need the private server-side `ADMIN_KEY`.
 
 ## What the Broadcast Monitor can do
 
-Open `/admin` and enter the deployment `ADMIN_KEY`.
+Open `/admin`, enter `MISSION_CONTROL_PASSPHRASE`, and optionally enter an operator label. The secure browser session lasts up to 12 hours and ends immediately when the operator selects **LOG OUT**.
 
 It shows:
 
+- unused, issued, active, and complete production-code counts;
+- an atomic **ISSUE NEXT FIELD CODE** control;
 - active receiver count;
 - number of digitally completed routes;
 - scan totals per station;
@@ -65,6 +67,17 @@ It shows:
 - route repair/reconstruction;
 - editable URLs for all 16 station × stage video slots;
 - editable unauthorized/"come back later" video URL.
+
+### Code lifecycle
+
+- **UNUSED**: valid production inventory that has not been issued or activated.
+- **ISSUED**: reserved by Mission Control but not yet entered by a player.
+- **ACTIVE**: successfully entered and representing a current player/group journey.
+- **COMPLETE**: active with all four unique digital station visits.
+
+**RESET PROGRESS removes Active status and clears the digital route. The code remains valid and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
+
+Mission Control also provides `TEST-01` through `TEST-05`. Test codes use the real authorization, cookie, routing, recovery, and video behavior, but are excluded from production inventory, activity, station-scan, and completion metrics.
 
 Video URL changes live in PostgreSQL, so changing them does not require new QR codes.
 
@@ -132,6 +145,7 @@ Set:
 ```bash
 DATABASE_URL=postgres://...
 ADMIN_KEY=some-long-secret
+MISSION_CONTROL_PASSPHRASE=shared-team-passphrase
 NODE_ENV=development
 ```
 
@@ -157,6 +171,7 @@ Set at minimum:
 ```text
 DATABASE_URL=...
 ADMIN_KEY=...
+MISSION_CONTROL_PASSPHRASE=...
 NODE_ENV=production
 PUBLIC_BASE_URL=https://your-real-domain.example
 ```
@@ -202,7 +217,7 @@ This creates high-resolution PNG and SVG QR files in `qr/`, plus a `.txt` file d
 
 This is a low-stakes festival credential system, not an account platform. Access codes are effectively bearer credentials: anyone who knows a code can restore that group's progress. That is deliberate for simple field recovery.
 
-Keep the admin key private. Do not print it on player materials.
+Keep the admin key and Mission Control passphrase private. Operators use only the passphrase; `ADMIN_KEY` remains a server-side maintenance credential and is never sent to the Mission Control browser.
 
 ## Files worth knowing
 
