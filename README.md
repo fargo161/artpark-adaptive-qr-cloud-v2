@@ -28,6 +28,10 @@ The physical rubber stamps remain the proof that a lockbox was actually solved. 
 7. Re-scanning a station replays its original stage and does not advance the route.
 8. On another phone, entering the same code restores the same server-side progress.
 
+After each Functional station video, Round 2 asks a short “What could YOU do...?” question. Several configured keywords or phrases may be accepted. Matching ignores case, harmless punctuation, apostrophe differences, and repeated whitespace; accepted phrases are matched as complete token sequences rather than unsafe substrings. A wrong response has no penalty or attempt limit and simply invites another answer.
+
+Round 2 answer state is independent from the Functional discovery route and from physical stamps. Completing an answer does not create a visit or change its stage. Four accepted station answers set the server-side `videoRoundComplete` state without changing the existing Start/End completion rule.
+
 ## Four permanent station routes
 
 After you have a real domain, print QRs for:
@@ -74,6 +78,8 @@ It shows:
 - route repair/reconstruction;
 - editable URLs for all 16 station × stage video slots;
 - editable unauthorized/"come back later" video URL.
+- editable player prompts and accepted answer phrases for all four video puzzles;
+- separate per-player video-answer status, accepted response, and completion timestamp.
 
 ### Code lifecycle
 
@@ -81,7 +87,7 @@ It shows:
 - **ACTIVE**: successfully entered and representing a current player/group journey.
 - **COMPLETE**: active with all four unique digital station visits.
 
-The lifecycle is **UNUSED → ACTIVE → COMPLETE**. **RESET PROGRESS removes Active status and clears the digital route. The code remains valid and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
+The lifecycle is **UNUSED → ACTIVE → COMPLETE**. **RESET PROGRESS removes Active status and clears the digital route and video answers. The code remains valid, retains the same persistent player/group identity, and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
 
 Mission Control also provides `TEST-01` through `TEST-05`. Test codes use the real authorization, cookie, routing, recovery, and video behavior, but are excluded from production inventory, activity, station-scan, and completion metrics.
 
@@ -98,9 +104,18 @@ Tables:
 - `access_codes` — valid credentials and activation state;
 - `players` — one row per activated player/group;
 - `visits` — station discovery order;
+- `video_answers` — one accepted Round 2 answer per code and station;
 - `app_settings` — persistent video routing configuration.
 
+`players.code` is both the primary key and a foreign key to `access_codes.code`. This database constraint makes the identity rule mathematical rather than cookie-dependent: **one unique access code = one player/group = one persistent record**. Activation locks the access-code row and uses an idempotent unique insert, so two phones activating the same unused code converge on that same record. Re-entering an active or complete code restores the same visits and video answers. Reset clears state on that identity instead of inserting a second historical player.
+
 A row lock on the player record serializes simultaneous scans. If two members of one group scan different stations at nearly the same time, the database gives them a deterministic Stage N and Stage N+1 rather than corrupting the record.
+
+## Video-answer configuration
+
+Mission Control’s **Video Puzzle Answers** section provides a prompt field and one-answer-per-line textarea for Escape, Attention, Access, and Sensory. The saved definitions live in `app_settings`; evaluation happens only on the server, and the accepted lists are never included in player configuration or station HTML. The initial examples in `config.default.json` are editable operational defaults.
+
+Accepted answers are stored once under the unique key `(code, station)` with their normalized response and completion timestamp. Repeated correct submissions are idempotent, revisiting a station preserves the accepted state, and test codes exercise the same mechanism while remaining excluded from production answer metrics.
 
 ## Important weak-signal behavior
 
@@ -224,6 +239,7 @@ This creates high-resolution PNG and SVG QR files in `qr/`, plus a `.txt` file d
 - QR signs tested after printing.
 - Several complete random-order routes tested on real phones.
 - Recovery tested by entering one active code on a second phone.
+- Video answers tested for accepted phrases, free retry, persistence, and `4 / 4` completion.
 - Concierge has printed backup access-code sheets/cards.
 - Physical stamps remain the completion authority.
 

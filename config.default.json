@@ -19,6 +19,12 @@
     "access": {"label": "ACQUISITION", "function": "Access", "subtitle": "Supply Desk"},
     "sensory": {"label": "RESONANCE", "function": "Sensory", "subtitle": "Internal Weather"}
   },
+  "answers": {
+    "escape": {"prompt": "What could YOU do to get out of this situation?", "acceptedPhrases": ["leave", "get out", "walk away", "escape", "go"]},
+    "attention": {"prompt": "What could YOU do to get someone to respond?", "acceptedPhrases": ["call", "ask", "speak", "respond", "get attention", "reach out"]},
+    "access": {"prompt": "What could YOU do to get what you need?", "acceptedPhrases": ["open", "ask", "get access", "enter", "reach", "take"]},
+    "sensory": {"prompt": "What could YOU do to change how this feels?", "acceptedPhrases": ["listen", "move", "tune in", "calm", "feel", "change the sound", "change the light"]}
+  },
   "stages": {
     "1": {"label": "DETECTION", "intro": "INITIAL SIGNAL CONTACT CONFIRMED."},
     "2": {"label": "PATTERN", "intro": "SECOND FREQUENCY CONFIRMED. THIS IS NOT AN ISOLATED EVENT."},

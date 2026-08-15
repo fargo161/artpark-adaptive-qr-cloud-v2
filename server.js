@@ -23,9 +23,11 @@ import {
   normalizeAccessCode,
   formatAccessCode,
   publicVisits,
+  publicVideoAnswers,
   safeConfigForPlayer
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
+import { normalizeAnswer, answerMatches, sanitizeAnswerDefinition } from './answer-matching.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -134,10 +136,17 @@ async function getContentConfig(client = pool) {
       locked: { ...defaults.locked, ...(stored.locked || {}) },
       startEnd: { ...defaults.startEnd, ...(stored.startEnd || {}) },
       stations: { ...defaults.stations, ...(stored.stations || {}) },
+      answers: Object.fromEntries(STATIONS.map(station => [
+        station,
+        sanitizeAnswerDefinition(stored.answers?.[station], defaults.answers[station])
+      ])),
       stages: { ...defaults.stages, ...(stored.stages || {}) },
       videos: { ...defaults.videos, ...(stored.videos || {}) }
     };
-    if (!stored.startEnd) {
+    const needsMigration = !stored.startEnd || STATIONS.some(station => (
+      !stored.answers?.[station]?.prompt || !Array.isArray(stored.answers?.[station]?.acceptedPhrases)
+    ));
+    if (needsMigration) {
       await client.query("UPDATE app_settings SET value=$1::jsonb,updated_at=NOW() WHERE key='content_config'", [JSON.stringify(merged)]);
     }
     return merged;
@@ -161,7 +170,10 @@ async function playerRecord(code, client = pool) {
   if (!access.rows[0]) return null;
   const player = await client.query('SELECT code, created_at, updated_at FROM players WHERE code=$1', [code]);
   const visits = await client.query('SELECT station, stage, created_at FROM visits WHERE code=$1 ORDER BY stage', [code]);
+  const answers = await client.query('SELECT station, accepted_answer, completed_at FROM video_answers WHERE code=$1 ORDER BY station', [code]);
   const complete = visits.rows.length >= 4;
+  const videoAnswers = publicVideoAnswers(answers.rows);
+  const videoAnswerCount = answers.rows.length;
   return {
     accessCode: formatAccessCode(code),
     status: complete ? 'complete' : access.rows[0].status,
@@ -169,6 +181,9 @@ async function playerRecord(code, client = pool) {
     test: access.rows[0].is_test,
     visits: publicVisits(visits.rows),
     complete,
+    videoAnswers,
+    videoAnswerCount,
+    videoRoundComplete: videoAnswerCount >= 4,
     allocatedAt: access.rows[0].allocated_at,
     activatedAt: access.rows[0].activated_at,
     createdAt: player.rows[0]?.created_at || null,
@@ -176,20 +191,29 @@ async function playerRecord(code, client = pool) {
   };
 }
 
+async function lockAccessCode(client, code) {
+  const result = await client.query(
+    'SELECT code,status,activated_at FROM access_codes WHERE code=$1 FOR UPDATE',
+    [code]
+  );
+  return result.rows[0] || null;
+}
+
+async function ensurePlayerIdentity(client, code) {
+  await client.query('INSERT INTO players(code) VALUES($1) ON CONFLICT (code) DO NOTHING', [code]);
+  await client.query("UPDATE access_codes SET status='active',activated_at=COALESCE(activated_at,NOW()) WHERE code=$1", [code]);
+  await client.query('SELECT code FROM players WHERE code=$1 FOR UPDATE', [code]);
+}
+
 async function authorizeCode(rawCode, res) {
   const code = normalizeAccessCode(rawCode);
   if (!code) return { ok: false, status: 400, error: 'ACCESS_CODE_REQUIRED' };
 
   const result = await withTransaction(async client => {
-    const valid = await client.query('SELECT code, status FROM access_codes WHERE code=$1 FOR UPDATE', [code]);
-    if (!valid.rows[0]) return { ok: false, status: 403, error: 'ACCESS_CODE_INVALID' };
-
-    const existing = await client.query('SELECT code FROM players WHERE code=$1', [code]);
-    const newlyActivated = valid.rows[0].status !== 'active';
-    if (!existing.rows[0]) {
-      await client.query('INSERT INTO players(code) VALUES($1)', [code]);
-    }
-    await client.query("UPDATE access_codes SET status='active', activated_at=NOW() WHERE code=$1", [code]);
+    const access = await lockAccessCode(client, code);
+    if (!access) return { ok: false, status: 403, error: 'ACCESS_CODE_INVALID' };
+    const newlyActivated = access.status !== 'active';
+    await ensurePlayerIdentity(client, code);
     const player = await playerRecord(code, client);
     return { ok: true, player, newlyActivated };
   });
@@ -246,13 +270,10 @@ app.post('/api/scan/:station', async (req, res) => {
 
   try {
     const result = await withTransaction(async client => {
-      const valid = await client.query('SELECT code,status FROM access_codes WHERE code=$1', [code]);
-      if (!valid.rows[0]) return { error: 'ACCESS_CODE_INVALID', status: 403 };
-      if (!bodyCode && valid.rows[0].status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
-
-      await client.query('INSERT INTO players(code) VALUES($1) ON CONFLICT (code) DO NOTHING', [code]);
-      await client.query("UPDATE access_codes SET status='active', activated_at=COALESCE(activated_at,NOW()) WHERE code=$1", [code]);
-      await client.query('SELECT code FROM players WHERE code=$1 FOR UPDATE', [code]);
+      const access = await lockAccessCode(client, code);
+      if (!access) return { error: 'ACCESS_CODE_INVALID', status: 403 };
+      if (!bodyCode && access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
+      await ensurePlayerIdentity(client, code);
 
       const existing = await client.query('SELECT station, stage, created_at FROM visits WHERE code=$1 AND station=$2', [code, station]);
       let stage;
@@ -276,7 +297,9 @@ app.post('/api/scan/:station', async (req, res) => {
         stage,
         stageMeta: config.stages[String(stage)],
         duplicate,
-        videoUrl: config.videos?.[station]?.[String(stage)] || ''
+        videoUrl: config.videos?.[station]?.[String(stage)] || '',
+        answerPrompt: config.answers?.[station]?.prompt || '',
+        answerState: player.videoAnswers[station]
       };
     });
 
@@ -287,6 +310,74 @@ app.post('/api/scan/:station', async (req, res) => {
     console.error('scan error', error);
     res.status(503).json({ error: 'SIGNAL_TEMPORARILY_UNAVAILABLE', retryable: true });
   }
+});
+
+app.post('/api/answer/:station', async (req, res) => {
+  const station = normalizeStation(req.params.station);
+  if (!station) return res.status(400).json({ error: 'INVALID_STATION' });
+  const code = normalizeAccessCode(parseCookies(req)[COOKIE_NAME]);
+  if (!code) return res.status(401).json({ error: 'ACCESS_REQUIRED' });
+  const rawAnswer = String(req.body?.answer || '');
+  if (!normalizeAnswer(rawAnswer)) return res.status(400).json({ error: 'ANSWER_REQUIRED' });
+  if (rawAnswer.length > 240) return res.status(400).json({ error: 'ANSWER_TOO_LONG' });
+
+  const result = await withTransaction(async client => {
+    const access = await lockAccessCode(client, code);
+    if (!access || access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
+    await ensurePlayerIdentity(client, code);
+    const existing = await client.query(
+      'SELECT accepted_answer,completed_at FROM video_answers WHERE code=$1 AND station=$2',
+      [code, station]
+    );
+    if (existing.rows[0]) {
+      return { accepted: true, duplicate: true, answerState: {
+        acceptedAnswer: existing.rows[0].accepted_answer,
+        completedAt: existing.rows[0].completed_at
+      }, player: await playerRecord(code, client) };
+    }
+
+    const config = await getContentConfig(client);
+    if (!answerMatches(rawAnswer, config.answers?.[station]?.acceptedPhrases)) {
+      return { accepted: false, duplicate: false };
+    }
+    const acceptedAnswer = normalizeAnswer(rawAnswer);
+    const inserted = await client.query(
+      `INSERT INTO video_answers(code,station,accepted_answer)
+       VALUES($1,$2,$3)
+       ON CONFLICT (code,station) DO NOTHING
+       RETURNING accepted_answer,completed_at`,
+      [code, station, acceptedAnswer]
+    );
+    const answerState = inserted.rows[0] || (await client.query(
+      'SELECT accepted_answer,completed_at FROM video_answers WHERE code=$1 AND station=$2',
+      [code, station]
+    )).rows[0];
+    await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
+    return {
+      accepted: true,
+      duplicate: !inserted.rows[0],
+      answerState: {
+        acceptedAnswer: answerState.accepted_answer,
+        completedAt: answerState.completed_at
+      },
+      player: await playerRecord(code, client)
+    };
+  });
+
+  if (result.error) {
+    clearPlayerCookie(res);
+    return res.status(result.status).json({ error: result.error });
+  }
+  if (!result.accepted) {
+    return res.json({
+      accepted: false,
+      message: 'SIGNAL NOT YET RESOLVED. TRY ANOTHER SHORT PHRASE.'
+    });
+  }
+  res.json({
+    ...result,
+    message: 'SIGNAL INTERPRETATION ACCEPTED'
+  });
 });
 
 app.post('/api/start-end', async (req, res) => {
@@ -352,21 +443,27 @@ app.post('/api/mission-control/logout', async (req, res) => {
 });
 
 app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
-  const [inventory, complete, stationCounts, recent] = await Promise.all([
+  const [inventory, complete, stationCounts, recent, videoComplete, videoStationCounts] = await Promise.all([
     pool.query("SELECT status,COUNT(*)::int AS count FROM access_codes WHERE is_test=FALSE GROUP BY status"),
     pool.query('SELECT COUNT(*)::int AS count FROM (SELECT v.code FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE GROUP BY v.code HAVING COUNT(*)=4) q'),
     pool.query('SELECT v.station,COUNT(*)::int AS count FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE GROUP BY v.station'),
-    pool.query('SELECT v.code,v.station,v.stage,v.created_at FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE ORDER BY v.created_at DESC LIMIT 20')
+    pool.query('SELECT v.code,v.station,v.stage,v.created_at FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE ORDER BY v.created_at DESC LIMIT 20'),
+    pool.query('SELECT COUNT(*)::int AS count FROM (SELECT va.code FROM video_answers va JOIN access_codes a ON a.code=va.code WHERE a.is_test=FALSE GROUP BY va.code HAVING COUNT(*)=4) q'),
+    pool.query('SELECT va.station,COUNT(*)::int AS count FROM video_answers va JOIN access_codes a ON a.code=va.code WHERE a.is_test=FALSE GROUP BY va.station')
   ]);
   const counts = { unused: 0, active: 0 };
   for (const row of inventory.rows) counts[row.status] = Number(row.count);
   const byStation = Object.fromEntries(STATIONS.map(s => [s, 0]));
   for (const row of stationCounts.rows) byStation[row.station] = Number(row.count);
+  const videoByStation = Object.fromEntries(STATIONS.map(s => [s, 0]));
+  for (const row of videoStationCounts.rows) videoByStation[row.station] = Number(row.count);
   res.json({
     unused: counts.unused,
     activated: counts.active,
     complete: Number(complete.rows[0].count),
     byStation,
+    videoComplete: Number(videoComplete.rows[0].count),
+    videoByStation,
     recent: recent.rows.map(r => ({...r, accessCode: formatAccessCode(r.code)}))
   });
 });
@@ -448,7 +545,8 @@ app.post('/api/admin/player/:accessCode/reset', requireAdmin, async (req, res) =
   await withTransaction(async client => {
     await client.query('SELECT code FROM access_codes WHERE code=$1 FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
-    await client.query('DELETE FROM players WHERE code=$1', [code]);
+    await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
+    await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
     await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     await audit(client, 'player_reset', code, req.missionOperator);
   });
@@ -465,15 +563,15 @@ app.put('/api/admin/player/:accessCode/visits', requireAdmin, async (req, res) =
     await client.query('SELECT code FROM access_codes WHERE code=$1 FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
     if (stations.length) {
-      await client.query('INSERT INTO players(code) VALUES($1) ON CONFLICT (code) DO NOTHING', [code]);
-      await client.query('SELECT code FROM players WHERE code=$1 FOR UPDATE', [code]);
+      await ensurePlayerIdentity(client, code);
       for (let i = 0; i < stations.length; i += 1) {
         await client.query('INSERT INTO visits(code,station,stage) VALUES($1,$2,$3)', [code, stations[i], i + 1]);
       }
       await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
       await client.query("UPDATE access_codes SET status='active',activated_at=COALESCE(activated_at,NOW()) WHERE code=$1", [code]);
     } else {
-      await client.query('DELETE FROM players WHERE code=$1', [code]);
+      await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
+      await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
       await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     }
     await audit(client, 'route_repaired', code, req.missionOperator, { stations });
@@ -533,7 +631,8 @@ app.post('/api/admin/tests/:accessCode/reset', requireAdmin, async (req, res) =>
   await withTransaction(async client => {
     await client.query('SELECT code FROM access_codes WHERE code=$1 AND is_test=TRUE FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
-    await client.query('DELETE FROM players WHERE code=$1', [code]);
+    await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
+    await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
     await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1 AND is_test=TRUE", [code]);
     await audit(client, 'test_reset', code, req.missionOperator);
   });
@@ -551,10 +650,18 @@ app.put('/api/admin/config', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'INVALID_CONFIG' });
   }
   // Preserve core station/stage metadata if the admin editor omits it.
+  const answers = Object.fromEntries(STATIONS.map(station => [
+    station,
+    sanitizeAnswerDefinition(next.answers?.[station], current.answers?.[station])
+  ]));
+  if (STATIONS.some(station => !answers[station].prompt || !answers[station].acceptedPhrases.length)) {
+    return res.status(400).json({ error: 'INVALID_ANSWER_CONFIG' });
+  }
   const merged = {
     ...current,
     ...next,
     stations: next.stations || current.stations,
+    answers,
     stages: next.stages || current.stages
   };
   await setContentConfig(merged);

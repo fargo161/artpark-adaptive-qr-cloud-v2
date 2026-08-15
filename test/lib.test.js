@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import { STATION_ROUTES, START_END_ROUTE, normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits } from '../lib.js';
+import { STATION_ROUTES, START_END_ROUTE, normalizeAccessCode, formatAccessCode, normalizeStation, nextStageFromVisits, publicVisits, publicVideoAnswers, safeConfigForPlayer } from '../lib.js';
 
 test('admin controls use explicit DOM references and event listeners without raw admin key', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
@@ -46,4 +46,16 @@ test('next stage derives from unique station history', () => {
 test('public visits sort by stage', () => {
   const visits = publicVisits([{station:'access',stage:2},{station:'attention',stage:1}]);
   assert.deepEqual(visits.map(v=>v.station), ['attention','access']);
+});
+
+test('video-answer state is separate from visits and player config hides accepted phrases', () => {
+  const answers = publicVideoAnswers([{ station: 'escape', accepted_answer: 'walk away', completed_at: '2026-08-15T12:00:00Z' }]);
+  assert.equal(answers.escape.acceptedAnswer, 'walk away');
+  assert.equal(answers.access, null);
+  const safe = safeConfigForPlayer({
+    eventName: 'ARTPARK', locked: {}, startEnd: {}, stations: {}, stages: {},
+    answers: { escape: { prompt: 'What could YOU do?', acceptedPhrases: ['leave'] } }
+  });
+  assert.equal(safe.answers.escape.prompt, 'What could YOU do?');
+  assert.doesNotMatch(JSON.stringify(safe), /acceptedPhrases|leave/);
 });

@@ -32,6 +32,18 @@ export function publicVisits(rows) {
     }));
 }
 
+export function publicVideoAnswers(rows) {
+  const completed = Object.fromEntries(STATIONS.map(station => [station, null]));
+  for (const row of rows || []) {
+    if (!STATIONS.includes(row.station)) continue;
+    completed[row.station] = {
+      acceptedAnswer: row.accepted_answer || row.acceptedAnswer || '',
+      completedAt: row.completed_at || row.completedAt || null
+    };
+  }
+  return completed;
+}
+
 export function safeConfigForPlayer(config) {
   return {
     eventName: config.eventName,
@@ -43,6 +55,9 @@ export function safeConfigForPlayer(config) {
       endIntro: config.startEnd?.endIntro
     },
     stations: config.stations,
+    answers: Object.fromEntries(STATIONS.map(station => [station, {
+      prompt: config.answers?.[station]?.prompt || ''
+    }])),
     stages: config.stages
   };
 }

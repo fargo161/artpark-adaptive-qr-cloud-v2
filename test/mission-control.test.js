@@ -54,6 +54,8 @@ test('schema migration preserves inventory and adds lifecycle, sessions, audit, 
   assert.match(schema, /is_test BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS mission_control_sessions/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS mission_control_audit/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS video_answers/);
+  assert.match(schema, /PRIMARY KEY \(code, station\)/);
   assert.match(schema, /ON CONFLICT \(code\) DO UPDATE SET is_test=TRUE/);
   assert.doesNotMatch(schema, /DROP TABLE|TRUNCATE/);
 });
@@ -67,13 +69,14 @@ test('server implements atomic issue, isolated metrics, locked reset, and cookie
   assert.doesNotMatch(server, /issued:\s*counts|status: 'issued'/);
   assert.match(server, /WHERE is_test=FALSE/);
   assert.match(server, /DELETE FROM visits WHERE code=\$1/);
-  assert.match(server, /DELETE FROM players WHERE code=\$1/);
+  assert.match(server, /DELETE FROM video_answers WHERE code=\$1/);
+  assert.doesNotMatch(server, /DELETE FROM players WHERE code=\$1/);
   assert.match(server, /status='unused',allocated_at=NULL,activated_at=NULL/);
   assert.match(server, /if \(!player\?\.active\)/);
-  assert.match(server, /!bodyCode && valid\.rows\[0\]\.status !== 'active'/);
+  assert.match(server, /!bodyCode && access\.status !== 'active'/);
   assert.match(server, /HttpOnly; SameSite=Strict/);
   assert.match(server, /DELETE FROM mission_control_sessions WHERE token_hash=\$1/);
-  assert.match(server, /status='active', activated_at=NOW\(\)/);
+  assert.match(server, /status='active',activated_at=COALESCE\(activated_at,NOW\(\)\)/);
 });
 
 test('active receiver directory is authenticated, read-only, lifecycle-consistent, and ordered', async () => {

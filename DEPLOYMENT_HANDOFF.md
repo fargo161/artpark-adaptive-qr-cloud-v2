@@ -40,7 +40,13 @@ Video URL configuration is stored in `app_settings`, not only in the repository.
 
 Event staff open `/admin`, enter the shared `MISSION_CONTROL_PASSPHRASE`, and receive a secure HttpOnly server-validated session. They can issue the next unused code, inspect lifecycle state, repair or reset a route with confirmation, use isolated test codes, edit video routing, and log out. They do not need Render, GitHub, PostgreSQL, or `ADMIN_KEY` access.
 
-Production codes move through `UNUSED → ACTIVE → COMPLETE`. Showing, copying, printing, or handing out a code does not change its `UNUSED` lifecycle state. Reset deletes the digital visits, removes Active status, and returns the still-valid code to a reusable pre-play state. Test codes use real routing but are excluded from production metrics.
+Production codes move through `UNUSED → ACTIVE → COMPLETE`. Showing, copying, printing, or handing out a code does not change its `UNUSED` lifecycle state. Reset deletes digital visits and video-answer completions, removes Active status, and returns the still-valid code to a reusable pre-play state while retaining its one persistent player/group identity. Test codes use real routing and answers but are excluded from production metrics.
+
+## Round 2 video answers
+
+Each Functional station presents an editable “What could YOU do...?” prompt after its routed video. Mission Control stores the prompt and one accepted phrase per line in the existing `content_config` setting. Evaluation is server-side and uses deterministic case, punctuation, apostrophe, whitespace, token, and conservative singular/plural normalization. Player endpoints receive prompts but never accepted phrase lists.
+
+Accepted state is stored in `video_answers` with primary key `(code, station)`, normalized accepted response, and completion time. Wrong answers have no penalty and create no row. Correct and repeated correct submissions are idempotent. Four station rows produce `videoRoundComplete=true`; this remains separate from visits, physical stamps, and the existing Start/End rule.
 
 ## Start/End and QR generation
 
@@ -49,6 +55,8 @@ Production codes move through `UNUSED → ACTIVE → COMPLETE`. Showing, copying
 The authenticated QR Code Generator produces Start/End plus the four functional station QRs as 1200px PNG and SVG. URLs derive from `PUBLIC_BASE_URL`; verify the displayed hostname before mass printing. No additional environment variable or database state is required.
 
 ## Concurrency semantics
+
+`players.code` is the database primary key and references the unique `access_codes.code`. All activation paths lock the access-code row, insert the player with `ON CONFLICT (code) DO NOTHING`, and then lock/reuse that row. Concurrent first-use requests therefore converge on the same identity. Recovery never clears visits or answers, and reset clears state without deleting the identity row.
 
 Station scan is transactional:
 
@@ -79,4 +87,4 @@ Before festival deployment, run a synthetic load test representing several hundr
 
 ## Backup strategy
 
-Use managed PostgreSQL backups if available. At minimum export `access_codes`, `players`, `visits`, and `app_settings` before opening day and after each festival day.
+Use managed PostgreSQL backups if available. At minimum export `access_codes`, `players`, `visits`, `video_answers`, and `app_settings` before opening day and after each festival day.

@@ -57,6 +57,16 @@ CREATE INDEX IF NOT EXISTS visits_station_idx ON visits(station);
 CREATE INDEX IF NOT EXISTS visits_created_idx ON visits(created_at DESC);
 CREATE INDEX IF NOT EXISTS access_codes_active_idx ON access_codes(code) WHERE status='active' AND is_test=FALSE;
 
+CREATE TABLE IF NOT EXISTS video_answers (
+  code TEXT NOT NULL REFERENCES players(code) ON DELETE CASCADE,
+  station TEXT NOT NULL CHECK (station IN ('escape','attention','access','sensory')),
+  accepted_answer TEXT NOT NULL,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (code, station)
+);
+
+CREATE INDEX IF NOT EXISTS video_answers_station_idx ON video_answers(station);
+
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value JSONB NOT NULL,
@@ -82,7 +92,9 @@ CREATE TABLE IF NOT EXISTS mission_control_audit (
 );
 
 UPDATE access_codes a SET status='active'
-WHERE EXISTS (SELECT 1 FROM players p WHERE p.code=a.code) AND a.status <> 'active';
+WHERE EXISTS (SELECT 1 FROM players p WHERE p.code=a.code)
+  AND a.activated_at IS NOT NULL
+  AND a.status <> 'active';
 
 INSERT INTO access_codes(code,status,is_test)
 VALUES ('TEST01','unused',TRUE),('TEST02','unused',TRUE),('TEST03','unused',TRUE),('TEST04','unused',TRUE),('TEST05','unused',TRUE)
