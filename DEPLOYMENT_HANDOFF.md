@@ -40,13 +40,15 @@ Video URL configuration is stored in `app_settings`, not only in the repository.
 
 Event staff open `/admin`, enter the shared `MISSION_CONTROL_PASSPHRASE`, and receive a secure HttpOnly server-validated session. They can issue the next unused code, inspect lifecycle state, repair or reset a route with confirmation, use isolated test codes, edit video routing, and log out. They do not need Render, GitHub, PostgreSQL, or `ADMIN_KEY` access.
 
-Production codes move through `UNUSED → ACTIVE → COMPLETE`. Showing, copying, printing, or handing out a code does not change its `UNUSED` lifecycle state. Reset deletes digital visits and video-answer completions, removes Active status, and returns the still-valid code to a reusable pre-play state while retaining its one persistent player/group identity. Test codes use real routing and answers but are excluded from production metrics.
+Production codes move through `UNUSED → ACTIVE → COMPLETE`. Showing, copying, printing, or handing out a code does not change its `UNUSED` lifecycle state. Reset deletes digital visits, reflective choices, and final-reflection/reveal state; removes Active status; and returns the still-valid code to a reusable pre-play state while retaining its one persistent player/group identity. Test codes use the complete real interface but are excluded from production metrics.
 
-## Round 2 video answers
+## Reflective station choices and final reflection
 
-Each Functional station presents an editable “What could YOU do...?” prompt after its routed video. Mission Control stores the prompt and one accepted phrase per line in the existing `content_config` setting. Evaluation is server-side and uses deterministic case, punctuation, apostrophe, whitespace, token, and conservative singular/plural normalization. Player endpoints receive prompts but never accepted phrase lists.
+Each Functional station presents an editable “What could YOU do...?” prompt and exactly four visible choices after its routed video. Every choice is valid. Mission Control stores prompts and choices in the existing `content_config` setting, while `video_answers` stores the first selected choice under primary key `(code, station)`. Four rows produce `videoRoundComplete=true`; choices remain separate from visits, discovery stages, and physical stamps.
 
-Accepted state is stored in `video_answers` with primary key `(code, station)`, normalized accepted response, and completion time. Wrong answers have no penalty and create no row. Correct and repeated correct submissions are idempotent. Four station rows produce `videoRoundComplete=true`; this remains separate from visits, physical stamps, and the existing Start/End rule.
+Once both the Functional route and reflective round reach four of four, Start/End presents the configurable final free-text question. Its accepted phrase family uses the existing deterministic server-side normalization. Wrong submissions persist nothing and allow unlimited retry. An accepted answer is stored once in `final_reflections` and causes the server to return the canonical concierge phrase. Accepted rules and the full phrase are never sent in ordinary pre-final configuration.
+
+Migration is additive and idempotent: `selected_choice` is added to `video_answers` and backfilled from deployed `accepted_answer` rows, preserving earlier completions. Legacy station prompts are retained while the obsolete graded keyword behavior/configuration is replaced by four-choice defaults. Access-code inventory, identities, visits, videos, and QR destinations are preserved.
 
 ## Start/End and QR generation
 

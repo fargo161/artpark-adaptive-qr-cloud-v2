@@ -55,6 +55,8 @@ test('schema migration preserves inventory and adds lifecycle, sessions, audit, 
   assert.match(schema, /CREATE TABLE IF NOT EXISTS mission_control_sessions/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS mission_control_audit/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS video_answers/);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS final_reflections/);
+  assert.match(schema, /selected_choice TEXT/);
   assert.match(schema, /PRIMARY KEY \(code, station\)/);
   assert.match(schema, /ON CONFLICT \(code\) DO UPDATE SET is_test=TRUE/);
   assert.doesNotMatch(schema, /DROP TABLE|TRUNCATE/);
@@ -70,6 +72,7 @@ test('server implements atomic issue, isolated metrics, locked reset, and cookie
   assert.match(server, /WHERE is_test=FALSE/);
   assert.match(server, /DELETE FROM visits WHERE code=\$1/);
   assert.match(server, /DELETE FROM video_answers WHERE code=\$1/);
+  assert.match(server, /DELETE FROM final_reflections WHERE code=\$1/);
   assert.doesNotMatch(server, /DELETE FROM players WHERE code=\$1/);
   assert.match(server, /status='unused',allocated_at=NULL,activated_at=NULL/);
   assert.match(server, /if \(!player\?\.active\)/);

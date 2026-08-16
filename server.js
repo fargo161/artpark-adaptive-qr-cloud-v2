@@ -27,7 +27,13 @@ import {
   safeConfigForPlayer
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
-import { normalizeAnswer, answerMatches, sanitizeAnswerDefinition } from './answer-matching.js';
+import { normalizeAnswer, answerMatches } from './answer-matching.js';
+import {
+  FINAL_PHRASE,
+  sanitizeStationChoiceDefinition,
+  sanitizeFinalReflection,
+  choiceAtIndex
+} from './mission-interface.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -138,13 +144,14 @@ async function getContentConfig(client = pool) {
       stations: { ...defaults.stations, ...(stored.stations || {}) },
       answers: Object.fromEntries(STATIONS.map(station => [
         station,
-        sanitizeAnswerDefinition(stored.answers?.[station], defaults.answers[station])
+        sanitizeStationChoiceDefinition(stored.answers?.[station], defaults.answers[station])
       ])),
+      finalReflection: sanitizeFinalReflection(stored.finalReflection, defaults.finalReflection),
       stages: { ...defaults.stages, ...(stored.stages || {}) },
       videos: { ...defaults.videos, ...(stored.videos || {}) }
     };
-    const needsMigration = !stored.startEnd || STATIONS.some(station => (
-      !stored.answers?.[station]?.prompt || !Array.isArray(stored.answers?.[station]?.acceptedPhrases)
+    const needsMigration = !stored.startEnd || !stored.finalReflection || STATIONS.some(station => (
+      !stored.answers?.[station]?.prompt || stored.answers?.[station]?.choices?.length !== 4
     ));
     if (needsMigration) {
       await client.query("UPDATE app_settings SET value=$1::jsonb,updated_at=NOW() WHERE key='content_config'", [JSON.stringify(merged)]);
@@ -170,7 +177,8 @@ async function playerRecord(code, client = pool) {
   if (!access.rows[0]) return null;
   const player = await client.query('SELECT code, created_at, updated_at FROM players WHERE code=$1', [code]);
   const visits = await client.query('SELECT station, stage, created_at FROM visits WHERE code=$1 ORDER BY stage', [code]);
-  const answers = await client.query('SELECT station, accepted_answer, completed_at FROM video_answers WHERE code=$1 ORDER BY station', [code]);
+  const answers = await client.query('SELECT station, selected_choice, completed_at FROM video_answers WHERE code=$1 ORDER BY station', [code]);
+  const final = await client.query('SELECT submitted_answer,completed_at FROM final_reflections WHERE code=$1', [code]);
   const complete = visits.rows.length >= 4;
   const videoAnswers = publicVideoAnswers(answers.rows);
   const videoAnswerCount = answers.rows.length;
@@ -184,6 +192,11 @@ async function playerRecord(code, client = pool) {
     videoAnswers,
     videoAnswerCount,
     videoRoundComplete: videoAnswerCount >= 4,
+    finalReflection: final.rows[0] ? {
+      accepted: true,
+      submittedAnswer: final.rows[0].submitted_answer,
+      completedAt: final.rows[0].completed_at
+    } : { accepted: false, submittedAnswer: '', completedAt: null },
     allocatedAt: access.rows[0].allocated_at,
     activatedAt: access.rows[0].activated_at,
     createdAt: player.rows[0]?.created_at || null,
@@ -299,6 +312,7 @@ app.post('/api/scan/:station', async (req, res) => {
         duplicate,
         videoUrl: config.videos?.[station]?.[String(stage)] || '',
         answerPrompt: config.answers?.[station]?.prompt || '',
+        answerChoices: config.answers?.[station]?.choices || [],
         answerState: player.videoAnswers[station]
       };
     });
@@ -312,9 +326,64 @@ app.post('/api/scan/:station', async (req, res) => {
   }
 });
 
-app.post('/api/answer/:station', async (req, res) => {
+app.post('/api/response/:station', async (req, res) => {
   const station = normalizeStation(req.params.station);
   if (!station) return res.status(400).json({ error: 'INVALID_STATION' });
+  const code = normalizeAccessCode(parseCookies(req)[COOKIE_NAME]);
+  if (!code) return res.status(401).json({ error: 'ACCESS_REQUIRED' });
+
+  const result = await withTransaction(async client => {
+    const access = await lockAccessCode(client, code);
+    if (!access || access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
+    await ensurePlayerIdentity(client, code);
+    const existing = await client.query(
+      'SELECT selected_choice,completed_at FROM video_answers WHERE code=$1 AND station=$2',
+      [code, station]
+    );
+    if (existing.rows[0]) {
+      return { accepted: true, duplicate: true, answerState: {
+        selectedChoice: existing.rows[0].selected_choice,
+        completedAt: existing.rows[0].completed_at
+      }, player: await playerRecord(code, client) };
+    }
+
+    const config = await getContentConfig(client);
+    const selectedChoice = choiceAtIndex(config.answers?.[station], req.body?.choiceIndex);
+    if (!selectedChoice) return { error: 'INVALID_CHOICE', status: 400 };
+    const inserted = await client.query(
+      `INSERT INTO video_answers(code,station,accepted_answer,selected_choice)
+       VALUES($1,$2,$3,$3)
+       ON CONFLICT (code,station) DO NOTHING
+       RETURNING selected_choice,completed_at`,
+      [code, station, selectedChoice]
+    );
+    const answerState = inserted.rows[0] || (await client.query(
+      'SELECT selected_choice,completed_at FROM video_answers WHERE code=$1 AND station=$2',
+      [code, station]
+    )).rows[0];
+    await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
+    return {
+      accepted: true,
+      duplicate: !inserted.rows[0],
+      answerState: {
+        selectedChoice: answerState.selected_choice,
+        completedAt: answerState.completed_at
+      },
+      player: await playerRecord(code, client)
+    };
+  });
+
+  if (result.error) {
+    if (result.status === 401) clearPlayerCookie(res);
+    return res.status(result.status).json({ error: result.error });
+  }
+  res.json({
+    ...result,
+    message: 'DECISION LOGGED'
+  });
+});
+
+app.post('/api/final-reflection', async (req, res) => {
   const code = normalizeAccessCode(parseCookies(req)[COOKIE_NAME]);
   if (!code) return res.status(401).json({ error: 'ACCESS_REQUIRED' });
   const rawAnswer = String(req.body?.answer || '');
@@ -325,59 +394,41 @@ app.post('/api/answer/:station', async (req, res) => {
     const access = await lockAccessCode(client, code);
     if (!access || access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
     await ensurePlayerIdentity(client, code);
-    const existing = await client.query(
-      'SELECT accepted_answer,completed_at FROM video_answers WHERE code=$1 AND station=$2',
-      [code, station]
-    );
-    if (existing.rows[0]) {
-      return { accepted: true, duplicate: true, answerState: {
-        acceptedAnswer: existing.rows[0].accepted_answer,
-        completedAt: existing.rows[0].completed_at
-      }, player: await playerRecord(code, client) };
+    const player = await playerRecord(code, client);
+    if (!player.complete || !player.videoRoundComplete) {
+      return { error: 'FINAL_REFLECTION_LOCKED', status: 409 };
+    }
+    if (player.finalReflection.accepted) {
+      return { accepted: true, duplicate: true, player, finalPhrase: FINAL_PHRASE };
     }
 
     const config = await getContentConfig(client);
-    if (!answerMatches(rawAnswer, config.answers?.[station]?.acceptedPhrases)) {
-      return { accepted: false, duplicate: false };
+    if (!answerMatches(rawAnswer, config.finalReflection.acceptedPhrases)) {
+      return { accepted: false, message: config.finalReflection.retryMessage };
     }
-    const acceptedAnswer = normalizeAnswer(rawAnswer);
+    const submittedAnswer = normalizeAnswer(rawAnswer);
     const inserted = await client.query(
-      `INSERT INTO video_answers(code,station,accepted_answer)
-       VALUES($1,$2,$3)
-       ON CONFLICT (code,station) DO NOTHING
-       RETURNING accepted_answer,completed_at`,
-      [code, station, acceptedAnswer]
+      `INSERT INTO final_reflections(code,submitted_answer)
+       VALUES($1,$2)
+       ON CONFLICT (code) DO NOTHING
+       RETURNING submitted_answer,completed_at`,
+      [code, submittedAnswer]
     );
-    const answerState = inserted.rows[0] || (await client.query(
-      'SELECT accepted_answer,completed_at FROM video_answers WHERE code=$1 AND station=$2',
-      [code, station]
-    )).rows[0];
     await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
     return {
       accepted: true,
       duplicate: !inserted.rows[0],
-      answerState: {
-        acceptedAnswer: answerState.accepted_answer,
-        completedAt: answerState.completed_at
-      },
-      player: await playerRecord(code, client)
+      player: await playerRecord(code, client),
+      message: config.finalReflection.acceptedMessage,
+      finalPhrase: FINAL_PHRASE
     };
   });
 
   if (result.error) {
-    clearPlayerCookie(res);
+    if (result.status === 401) clearPlayerCookie(res);
     return res.status(result.status).json({ error: result.error });
   }
-  if (!result.accepted) {
-    return res.json({
-      accepted: false,
-      message: 'SIGNAL NOT YET RESOLVED. TRY ANOTHER SHORT PHRASE.'
-    });
-  }
-  res.json({
-    ...result,
-    message: 'SIGNAL INTERPRETATION ACCEPTED'
-  });
+  res.json(result);
 });
 
 app.post('/api/start-end', async (req, res) => {
@@ -392,6 +443,7 @@ app.post('/api/start-end', async (req, res) => {
   const player = await playerRecord(code);
   const config = await getContentConfig();
   const framingState = player.complete ? 'end' : 'start';
+  const finalAvailable = player.complete && player.videoRoundComplete;
   res.json({
     player,
     framingState,
@@ -399,7 +451,15 @@ app.post('/api/start-end', async (req, res) => {
       label: framingState === 'end' ? config.startEnd.endLabel : config.startEnd.startLabel,
       intro: framingState === 'end' ? config.startEnd.endIntro : config.startEnd.startIntro
     },
-    videoUrl: framingState === 'end' ? config.startEnd.endVideoUrl : config.startEnd.startVideoUrl
+    videoUrl: framingState === 'end' ? config.startEnd.endVideoUrl : config.startEnd.startVideoUrl,
+    finalReflection: {
+      available: finalAvailable,
+      accepted: player.finalReflection.accepted,
+      prompt: config.finalReflection.prompt,
+      retryMessage: config.finalReflection.retryMessage,
+      acceptedMessage: config.finalReflection.acceptedMessage,
+      finalPhrase: player.finalReflection.accepted ? FINAL_PHRASE : null
+    }
   });
 });
 
@@ -546,6 +606,7 @@ app.post('/api/admin/player/:accessCode/reset', requireAdmin, async (req, res) =
     await client.query('SELECT code FROM access_codes WHERE code=$1 FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
     await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
+    await client.query('DELETE FROM final_reflections WHERE code=$1', [code]);
     await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
     await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     await audit(client, 'player_reset', code, req.missionOperator);
@@ -571,6 +632,7 @@ app.put('/api/admin/player/:accessCode/visits', requireAdmin, async (req, res) =
       await client.query("UPDATE access_codes SET status='active',activated_at=COALESCE(activated_at,NOW()) WHERE code=$1", [code]);
     } else {
       await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
+      await client.query('DELETE FROM final_reflections WHERE code=$1', [code]);
       await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
       await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     }
@@ -632,6 +694,7 @@ app.post('/api/admin/tests/:accessCode/reset', requireAdmin, async (req, res) =>
     await client.query('SELECT code FROM access_codes WHERE code=$1 AND is_test=TRUE FOR UPDATE', [code]);
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
     await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
+    await client.query('DELETE FROM final_reflections WHERE code=$1', [code]);
     await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
     await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1 AND is_test=TRUE", [code]);
     await audit(client, 'test_reset', code, req.missionOperator);
@@ -652,16 +715,22 @@ app.put('/api/admin/config', requireAdmin, async (req, res) => {
   // Preserve core station/stage metadata if the admin editor omits it.
   const answers = Object.fromEntries(STATIONS.map(station => [
     station,
-    sanitizeAnswerDefinition(next.answers?.[station], current.answers?.[station])
+    sanitizeStationChoiceDefinition(next.answers?.[station], current.answers?.[station])
   ]));
-  if (STATIONS.some(station => !answers[station].prompt || !answers[station].acceptedPhrases.length)) {
+  if (STATIONS.some(station => !answers[station].prompt || answers[station].choices.length !== 4)) {
     return res.status(400).json({ error: 'INVALID_ANSWER_CONFIG' });
+  }
+  const finalReflection = sanitizeFinalReflection(next.finalReflection, current.finalReflection);
+  if (!finalReflection.prompt || !finalReflection.acceptedPhrases.length ||
+      !finalReflection.retryMessage || !finalReflection.acceptedMessage) {
+    return res.status(400).json({ error: 'INVALID_FINAL_REFLECTION_CONFIG' });
   }
   const merged = {
     ...current,
     ...next,
     stations: next.stations || current.stations,
     answers,
+    finalReflection,
     stages: next.stages || current.stages
   };
   await setContentConfig(merged);

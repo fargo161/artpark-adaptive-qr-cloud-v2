@@ -37,7 +37,7 @@ export function publicVideoAnswers(rows) {
   for (const row of rows || []) {
     if (!STATIONS.includes(row.station)) continue;
     completed[row.station] = {
-      acceptedAnswer: row.accepted_answer || row.acceptedAnswer || '',
+      selectedChoice: row.selected_choice || row.selectedChoice || row.accepted_answer || row.acceptedAnswer || '',
       completedAt: row.completed_at || row.completedAt || null
     };
   }
@@ -56,8 +56,14 @@ export function safeConfigForPlayer(config) {
     },
     stations: config.stations,
     answers: Object.fromEntries(STATIONS.map(station => [station, {
-      prompt: config.answers?.[station]?.prompt || ''
+      prompt: config.answers?.[station]?.prompt || '',
+      choices: config.answers?.[station]?.choices || []
     }])),
+    finalReflection: {
+      prompt: config.finalReflection?.prompt || '',
+      retryMessage: config.finalReflection?.retryMessage || '',
+      acceptedMessage: config.finalReflection?.acceptedMessage || ''
+    },
     stages: config.stages
   };
 }

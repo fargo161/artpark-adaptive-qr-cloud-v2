@@ -61,11 +61,22 @@ CREATE TABLE IF NOT EXISTS video_answers (
   code TEXT NOT NULL REFERENCES players(code) ON DELETE CASCADE,
   station TEXT NOT NULL CHECK (station IN ('escape','attention','access','sensory')),
   accepted_answer TEXT NOT NULL,
+  selected_choice TEXT,
   completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY (code, station)
 );
 
+ALTER TABLE video_answers ADD COLUMN IF NOT EXISTS selected_choice TEXT;
+UPDATE video_answers SET selected_choice=accepted_answer WHERE selected_choice IS NULL;
+ALTER TABLE video_answers ALTER COLUMN selected_choice SET NOT NULL;
+
 CREATE INDEX IF NOT EXISTS video_answers_station_idx ON video_answers(station);
+
+CREATE TABLE IF NOT EXISTS final_reflections (
+  code TEXT PRIMARY KEY REFERENCES players(code) ON DELETE CASCADE,
+  submitted_answer TEXT NOT NULL,
+  completed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,

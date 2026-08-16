@@ -28,9 +28,13 @@ The physical rubber stamps remain the proof that a lockbox was actually solved. 
 7. Re-scanning a station replays its original stage and does not advance the route.
 8. On another phone, entering the same code restores the same server-side progress.
 
-After each Functional station video, Round 2 asks a short “What could YOU do...?” question. Several configured keywords or phrases may be accepted. Matching ignores case, harmless punctuation, apostrophe differences, and repeated whitespace; accepted phrases are matched as complete token sequences rather than unsafe substrings. A wrong response has no penalty or attempt limit and simply invites another answer.
+After each Functional station video, the reflective round asks a station-specific **What could YOU do...?** question and displays exactly four choices. Every displayed choice is valid: the interaction records participation and self-positioning, not quiz correctness. The first selected choice is locked, remains visible on revisit, and is stored once per code/station.
 
-Round 2 answer state is independent from the Functional discovery route and from physical stamps. Completing an answer does not create a visit or change its stage. Four accepted station answers set the server-side `videoRoundComplete` state without changing the existing Start/End completion rule.
+Reflective-response state is independent from the Functional discovery route and physical stamps. Selecting a choice does not create a visit or change its stage. One response at each of the four stations sets the authoritative `videoRoundComplete` state.
+
+After the Functional route and all four reflective responses are complete, Start/End exposes one final free-text reflection. The default question is **What did YOU do to get this far?** Matching is forgiving, deterministic, and server-side: it ignores case, harmless punctuation, apostrophe differences, and repeated whitespace while using token-aware configured keywords and phrases. An unrelated response receives a gentle, unlimited retry and does not alter progress.
+
+An accepted final reflection reveals the canonical concierge phrase. Fragments using the vocabulary of decisions, portals, choosing, opening, and crossing are intentionally distributed through the player interface, but the full phrase is returned by the server and displayed only after final acceptance.
 
 ## Four permanent station routes
 
@@ -78,8 +82,9 @@ It shows:
 - route repair/reconstruction;
 - editable URLs for all 16 station × stage video slots;
 - editable unauthorized/"come back later" video URL.
-- editable player prompts and accepted answer phrases for all four video puzzles;
-- separate per-player video-answer status, accepted response, and completion timestamp.
+- editable player prompts and four choices for every Functional station;
+- editable final prompt, accepted phrases, retry copy, and completion copy;
+- per-player selected responses, reflective completion, final-response state, normalized submission, and timestamps.
 
 ### Code lifecycle
 
@@ -87,7 +92,7 @@ It shows:
 - **ACTIVE**: successfully entered and representing a current player/group journey.
 - **COMPLETE**: active with all four unique digital station visits.
 
-The lifecycle is **UNUSED → ACTIVE → COMPLETE**. **RESET PROGRESS removes Active status and clears the digital route and video answers. The code remains valid, retains the same persistent player/group identity, and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
+The lifecycle is **UNUSED → ACTIVE → COMPLETE**. **RESET PROGRESS removes Active status and clears the digital route, four reflective choices, final response, and phrase-reveal eligibility. The code remains valid, retains the same persistent player/group identity, and can be activated again at a station, where it starts fresh at Stage 1.** Physical stamps are unaffected.
 
 Mission Control also provides `TEST-01` through `TEST-05`. Test codes use the real authorization, cookie, routing, recovery, and video behavior, but are excluded from production inventory, activity, station-scan, and completion metrics.
 
@@ -104,18 +109,21 @@ Tables:
 - `access_codes` — valid credentials and activation state;
 - `players` — one row per activated player/group;
 - `visits` — station discovery order;
-- `video_answers` — one accepted Round 2 answer per code and station;
+- `video_answers` — one selected reflective choice per code and station;
+- `final_reflections` — one accepted final free-text response per code;
 - `app_settings` — persistent video routing configuration.
 
-`players.code` is both the primary key and a foreign key to `access_codes.code`. This database constraint makes the identity rule mathematical rather than cookie-dependent: **one unique access code = one player/group = one persistent record**. Activation locks the access-code row and uses an idempotent unique insert, so two phones activating the same unused code converge on that same record. Re-entering an active or complete code restores the same visits and video answers. Reset clears state on that identity instead of inserting a second historical player.
+`players.code` is both the primary key and a foreign key to `access_codes.code`. This database constraint makes the identity rule mathematical rather than cookie-dependent: **one unique access code = one player/group = one persistent record**. Activation locks the access-code row and uses an idempotent unique insert, so two phones activating the same unused code converge on that same record. Re-entering an active or complete code restores visits, selected choices, and final-reflection state. Reset clears state on that identity instead of inserting a second historical player.
 
 A row lock on the player record serializes simultaneous scans. If two members of one group scan different stations at nearly the same time, the database gives them a deterministic Stage N and Stage N+1 rather than corrupting the record.
 
-## Video-answer configuration
+## Reflective response and final-reflection configuration
 
-Mission Control’s **Video Puzzle Answers** section provides a prompt field and one-answer-per-line textarea for Escape, Attention, Access, and Sensory. The saved definitions live in `app_settings`; evaluation happens only on the server, and the accepted lists are never included in player configuration or station HTML. The initial examples in `config.default.json` are editable operational defaults.
+Mission Control's **Reflective Station Responses** section provides one prompt and exactly four editable choices for Escape, Attention, Access, and Sensory. All four are accepted. Selections are stored once under unique key `(code, station)` with the selected copy and completion timestamp; revisiting preserves the first response.
 
-Accepted answers are stored once under the unique key `(code, station)` with their normalized response and completion timestamp. Repeated correct submissions are idempotent, revisiting a station preserves the accepted state, and test codes exercise the same mechanism while remaining excluded from production answer metrics.
+The separate **Final Reflection** editor controls its prompt, accepted keyword/phrase family, gentle retry copy, and accepted copy. Final matching happens only on the server, and accepted lists are never included in player configuration or station HTML. The canonical concierge phrase is likewise absent from pre-final templates/config and is returned only after an accepted final submission.
+
+The backward-safe schema migration adds `selected_choice`, backfills it from every existing `accepted_answer`, and retains the legacy column so deployed completion rows remain intact. Previously stored station keyword definitions are replaced by editable four-choice defaults while preserving station prompts. Existing access codes, player identities, routes, video URLs, and QR destinations are not regenerated or overwritten.
 
 ## Important weak-signal behavior
 
@@ -239,7 +247,8 @@ This creates high-resolution PNG and SVG QR files in `qr/`, plus a `.txt` file d
 - QR signs tested after printing.
 - Several complete random-order routes tested on real phones.
 - Recovery tested by entering one active code on a second phone.
-- Video answers tested for accepted phrases, free retry, persistence, and `4 / 4` completion.
+- All four choices at every station tested as valid, persistent, idempotent responses.
+- Final reflection tested for locking, forgiving matching, retry, idempotency, and reveal safety.
 - Concierge has printed backup access-code sheets/cards.
 - Physical stamps remain the completion authority.
 

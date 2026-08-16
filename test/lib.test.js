@@ -5,7 +5,7 @@ import { STATION_ROUTES, START_END_ROUTE, normalizeAccessCode, formatAccessCode,
 
 test('admin controls use explicit DOM references and event listeners without raw admin key', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
-  for (const id of ['passphrase','operator','connect','refresh','logout','refreshActive','activeSort','loadMoreActive','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig']) {
+  for (const id of ['passphrase','operator','connect','refresh','logout','refreshActive','activeSort','loadMoreActive','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig','finalPrompt','finalAcceptedPhrases','finalRetryMessage','finalAcceptedMessage','saveFinalReflection']) {
     assert.match(html, new RegExp(`byId\\('${id}'\\)`));
   }
   assert.doesNotMatch(html, /\.(?:onclick|onkeydown)\s*=/);
@@ -48,14 +48,16 @@ test('public visits sort by stage', () => {
   assert.deepEqual(visits.map(v=>v.station), ['attention','access']);
 });
 
-test('video-answer state is separate from visits and player config hides accepted phrases', () => {
-  const answers = publicVideoAnswers([{ station: 'escape', accepted_answer: 'walk away', completed_at: '2026-08-15T12:00:00Z' }]);
-  assert.equal(answers.escape.acceptedAnswer, 'walk away');
+test('reflective-response state is separate from visits and final matching rules remain private', () => {
+  const answers = publicVideoAnswers([{ station: 'escape', selected_choice: 'Walk away', completed_at: '2026-08-15T12:00:00Z' }]);
+  assert.equal(answers.escape.selectedChoice, 'Walk away');
   assert.equal(answers.access, null);
   const safe = safeConfigForPlayer({
     eventName: 'ARTPARK', locked: {}, startEnd: {}, stations: {}, stages: {},
-    answers: { escape: { prompt: 'What could YOU do?', acceptedPhrases: ['leave'] } }
+    answers: { escape: { prompt: 'What could YOU do?', choices: ['Leave','Wait','Ask','Move'] } },
+    finalReflection: { prompt: 'What did YOU do?', acceptedPhrases: ['secret'], retryMessage: 'Try.', acceptedMessage: 'Accepted.' }
   });
   assert.equal(safe.answers.escape.prompt, 'What could YOU do?');
-  assert.doesNotMatch(JSON.stringify(safe), /acceptedPhrases|leave/);
+  assert.deepEqual(safe.answers.escape.choices, ['Leave','Wait','Ask','Move']);
+  assert.doesNotMatch(JSON.stringify(safe), /acceptedPhrases|secret/);
 });

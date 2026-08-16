@@ -20,10 +20,16 @@
     "sensory": {"label": "RESONANCE", "function": "Sensory", "subtitle": "Internal Weather"}
   },
   "answers": {
-    "escape": {"prompt": "What could YOU do to get out of this situation?", "acceptedPhrases": ["leave", "get out", "walk away", "escape", "go"]},
-    "attention": {"prompt": "What could YOU do to get someone to respond?", "acceptedPhrases": ["call", "ask", "speak", "respond", "get attention", "reach out"]},
-    "access": {"prompt": "What could YOU do to get what you need?", "acceptedPhrases": ["open", "ask", "get access", "enter", "reach", "take"]},
-    "sensory": {"prompt": "What could YOU do to change how this feels?", "acceptedPhrases": ["listen", "move", "tune in", "calm", "feel", "change the sound", "change the light"]}
+    "escape": {"prompt": "What could YOU do to get out of this situation?", "choices": ["Leave", "Ask for space", "Change the situation", "Wait for an opening"]},
+    "attention": {"prompt": "What could YOU do to get someone to respond?", "choices": ["Speak up", "Ask directly", "Reach out", "Make yourself noticeable"]},
+    "access": {"prompt": "What could YOU do to get what you need?", "choices": ["Ask for it", "Find another way in", "Reach for it", "Trade or exchange"]},
+    "sensory": {"prompt": "What could YOU do to change how this feels?", "choices": ["Move somewhere else", "Change the sound", "Change the light", "Focus on something different"]}
+  },
+  "finalReflection": {
+    "prompt": "What did YOU do to get this far?",
+    "acceptedPhrases": ["choose", "chose", "choice", "decide", "decided", "decision", "participate", "participated", "participation", "I chose", "I decided", "I participated", "me", "agency"],
+    "retryMessage": "THE SIGNAL IS CLOSE. THINK ABOUT WHAT YOU DID, NOT WHAT YOU FOUND.",
+    "acceptedMessage": "FINAL RESPONSE ACCEPTED. CONCIERGE TRANSMISSION UNLOCKED."
   },
   "stages": {
     "1": {"label": "DETECTION", "intro": "INITIAL SIGNAL CONTACT CONFIRMED."},
