@@ -1,9 +1,9 @@
 export const QR_DESTINATIONS = [
   { slug: 'start-end', name: 'START / END', route: '/s/start-end' },
-  { slug: 'access', name: 'ACCESS', route: '/s/access' },
-  { slug: 'attention', name: 'ATTENTION', route: '/s/attention' },
-  { slug: 'escape', name: 'ESCAPE', route: '/s/escape' },
-  { slug: 'sensory', name: 'SENSORY', route: '/s/sensory' }
+  { slug: 'access', name: 'ACCESS', route: '/s/access', stationNumber: 1 },
+  { slug: 'attention', name: 'ATTENTION', route: '/s/attention', stationNumber: 2 },
+  { slug: 'escape', name: 'ESCAPE', route: '/s/escape', stationNumber: 3 },
+  { slug: 'sensory', name: 'SENSORY', route: '/s/sensory', stationNumber: 4 }
 ];
 
 export function normalizeBaseUrl(value) {

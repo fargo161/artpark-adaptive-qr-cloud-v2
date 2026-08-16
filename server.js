@@ -1,5 +1,4 @@
 import express from 'express';
-import QRCode from 'qrcode';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,6 +27,13 @@ import {
   safeConfigForPlayer
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
+import {
+  artworkKeyForDestination,
+  qrArtworkCatalog,
+  renderStyledQrSvg,
+  sanitizeQrArtworkAssignments,
+  startEndArtwork
+} from './qr-artwork.js';
 import { normalizeAnswer, answerMatches } from './answer-matching.js';
 import {
   FINAL_PHRASE,
@@ -139,6 +145,10 @@ async function getContentConfig(client = pool) {
   if (result.rows[0]?.value) {
     const stored = result.rows[0].value;
     const videoMigration = migrateVideoConfiguration(stored, defaults);
+    const qrArtworkAssignments = sanitizeQrArtworkAssignments(
+      stored.qrArtworkAssignments,
+      defaults.qrArtworkAssignments
+    );
     const merged = {
       ...defaults,
       ...stored,
@@ -152,10 +162,13 @@ async function getContentConfig(client = pool) {
       finalReflection: sanitizeFinalReflection(stored.finalReflection, defaults.finalReflection),
       stages: { ...defaults.stages, ...(stored.stages || {}) },
       videos: videoMigration.videos,
-      deprecatedStageVideos: videoMigration.deprecatedStageVideos
+      deprecatedStageVideos: videoMigration.deprecatedStageVideos,
+      qrArtworkAssignments
     };
     const needsMigration = videoMigration.needsMigration || !stored.startEnd ||
-      !stored.finalReflection?.videos || STATIONS.some(station => (
+      !stored.finalReflection?.videos ||
+      JSON.stringify(stored.qrArtworkAssignments || {}) !== JSON.stringify(qrArtworkAssignments) ||
+      STATIONS.some(station => (
       !stored.answers?.[station]?.prompt || stored.answers?.[station]?.choices?.length !== 4
     ));
     if (needsMigration) {
@@ -683,15 +696,22 @@ app.get('/api/admin/tests', requireAdmin, async (_req, res) => {
   res.json({ tests: records });
 });
 
-app.get('/api/admin/qr', requireAdmin, (req, res) => {
+app.get('/api/admin/qr', requireAdmin, async (req, res) => {
   const configuredBase = normalizeBaseUrl(process.env.PUBLIC_BASE_URL);
   const fallbackBase = `${req.protocol}://${req.get('host')}`;
   const baseUrl = configuredBase || fallbackBase;
+  const config = await getContentConfig();
   res.json({
     baseUrl,
     hostSource: configuredBase ? 'PUBLIC_BASE_URL' : 'CURRENT REQUEST HOST',
     printWarning: 'Verify this hostname is the intended permanent print destination before mass printing.',
-    destinations: qrDestinations(baseUrl)
+    artworkCatalog: qrArtworkCatalog(),
+    startEndArtwork: startEndArtwork(),
+    artworkAssignments: config.qrArtworkAssignments,
+    destinations: qrDestinations(baseUrl).map(destination => ({
+      ...destination,
+      artworkKey: artworkKeyForDestination(destination.slug, config.qrArtworkAssignments)
+    }))
   });
 });
 
@@ -700,17 +720,21 @@ app.get('/api/admin/qr/:slug.:format', requireAdmin, async (req, res) => {
   const baseUrl = configuredBase || `${req.protocol}://${req.get('host')}`;
   const destination = qrDestinations(baseUrl).find(item => item.slug === req.params.slug);
   if (!destination) return res.status(404).json({ error: 'QR_DESTINATION_NOT_FOUND' });
-  const options = { margin: 4, errorCorrectionLevel: 'H' };
-  if (req.params.format === 'png') {
-    const png = await QRCode.toBuffer(destination.url, { ...options, type: 'png', width: 1200 });
-    res.set('Content-Type', 'image/png');
-    if (req.query.download === '1') res.set('Content-Disposition', `attachment; filename="artpark-${destination.slug}.png"`);
-    return res.send(png);
-  }
+  const config = await getContentConfig();
+  const artworkKey = artworkKeyForDestination(
+    destination.slug,
+    config.qrArtworkAssignments,
+    String(req.query.artwork || '')
+  );
+  const destinationLabel = destination.slug === 'start-end'
+    ? 'START / END'
+    : `STATION ${destination.stationNumber} // ${destination.name}`;
+  const renderOptions = { destinationUrl: destination.url, destinationLabel, artworkKey };
+  res.set('Cache-Control', 'private, no-store');
   if (req.params.format === 'svg') {
-    const svg = await QRCode.toString(destination.url, { ...options, type: 'svg' });
+    const svg = await renderStyledQrSvg(renderOptions);
     res.set('Content-Type', 'image/svg+xml');
-    if (req.query.download === '1') res.set('Content-Disposition', `attachment; filename="artpark-${destination.slug}.svg"`);
+    if (req.query.download === '1') res.set('Content-Disposition', `attachment; filename="artpark-${destination.slug}-${artworkKey}.svg"`);
     return res.send(svg);
   }
   res.status(400).json({ error: 'QR_FORMAT_INVALID' });
@@ -762,6 +786,10 @@ app.put('/api/admin/config', requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'INVALID_FINAL_REFLECTION_CONFIG' });
   }
   const videoMigration = migrateVideoConfiguration(next, current);
+  const qrArtworkAssignments = sanitizeQrArtworkAssignments(
+    next.qrArtworkAssignments,
+    current.qrArtworkAssignments
+  );
   const merged = {
     ...current,
     ...next,
@@ -770,6 +798,7 @@ app.put('/api/admin/config', requireAdmin, async (req, res) => {
     finalReflection,
     stages: next.stages || current.stages,
     videos: videoMigration.videos,
+    qrArtworkAssignments,
     deprecatedStageVideos: {
       ...(current.deprecatedStageVideos || {}),
       ...videoMigration.deprecatedStageVideos
