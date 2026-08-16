@@ -54,7 +54,7 @@ test('Start/End client preserves the access gate and does not join functional sc
   assert.match(html, /data\.framingState==='end'/);
 });
 
-test('Mission Control exposes authenticated styled QR metadata and asset endpoints without database mutation', async () => {
+test('Mission Control exposes authenticated QR metadata and asset endpoints without database mutation', async () => {
   const server = await fs.readFile(new URL('../server.js', import.meta.url), 'utf8');
   const start = server.indexOf("app.get('/api/admin/qr'");
   const end = server.indexOf("app.post('/api/admin/tests/:accessCode/open'", start);
@@ -62,9 +62,8 @@ test('Mission Control exposes authenticated styled QR metadata and asset endpoin
   const endpoints = server.slice(start, end);
   assert.match(endpoints, /requireAdmin/);
   assert.match(endpoints, /process\.env\.PUBLIC_BASE_URL/);
-  assert.match(endpoints, /renderStyledQrSvg/);
-  assert.match(endpoints, /renderStyledQrSvg/);
-  assert.match(endpoints, /artworkKeyForDestination/);
+  assert.match(endpoints, /QRCode\.toBuffer/);
+  assert.match(endpoints, /QRCode\.toString/);
   assert.doesNotMatch(endpoints, /pool\.query|withTransaction|\b(?:INSERT|UPDATE|DELETE)\b/);
 });
 

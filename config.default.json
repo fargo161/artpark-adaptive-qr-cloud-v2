@@ -47,11 +47,5 @@
     "attention": {"loopVideoUrl": "", "completionVideoUrl": ""},
     "access": {"loopVideoUrl": "", "completionVideoUrl": ""},
     "sensory": {"loopVideoUrl": "", "completionVideoUrl": ""}
-  },
-  "qrArtworkAssignments": {
-    "access": "galaxy",
-    "attention": "spiral",
-    "escape": "beam",
-    "sensory": "human"
   }
 }
