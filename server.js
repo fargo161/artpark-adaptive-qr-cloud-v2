@@ -571,13 +571,14 @@ app.post('/api/mission-control/logout', async (req, res) => {
 });
 
 app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
-  const [inventory, complete, stationCounts, recent, videoComplete, videoStationCounts] = await Promise.all([
+  const [inventory, complete, stationCounts, recent, videoComplete, videoStationCounts, finalComplete] = await Promise.all([
     pool.query("SELECT status,COUNT(*)::int AS count FROM access_codes WHERE is_test=FALSE GROUP BY status"),
     pool.query('SELECT COUNT(*)::int AS count FROM (SELECT v.code FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE GROUP BY v.code HAVING COUNT(*)=4) q'),
     pool.query('SELECT v.station,COUNT(*)::int AS count FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE GROUP BY v.station'),
     pool.query('SELECT v.code,v.station,v.stage,v.created_at FROM visits v JOIN access_codes a ON a.code=v.code WHERE a.is_test=FALSE ORDER BY v.created_at DESC LIMIT 20'),
     pool.query('SELECT COUNT(*)::int AS count FROM (SELECT va.code FROM video_answers va JOIN access_codes a ON a.code=va.code WHERE a.is_test=FALSE GROUP BY va.code HAVING COUNT(*)=4) q'),
-    pool.query('SELECT va.station,COUNT(*)::int AS count FROM video_answers va JOIN access_codes a ON a.code=va.code WHERE a.is_test=FALSE GROUP BY va.station')
+    pool.query('SELECT va.station,COUNT(*)::int AS count FROM video_answers va JOIN access_codes a ON a.code=va.code WHERE a.is_test=FALSE GROUP BY va.station'),
+    pool.query('SELECT COUNT(*)::int AS count FROM final_reflections fr JOIN access_codes a ON a.code=fr.code WHERE a.is_test=FALSE')
   ]);
   const counts = { unused: 0, active: 0 };
   for (const row of inventory.rows) counts[row.status] = Number(row.count);
@@ -591,6 +592,7 @@ app.get('/api/admin/summary', requireAdmin, async (_req, res) => {
     complete: Number(complete.rows[0].count),
     byStation,
     videoComplete: Number(videoComplete.rows[0].count),
+    finalComplete: Number(finalComplete.rows[0].count),
     videoByStation,
     recent: recent.rows.map(r => ({...r, accessCode: formatAccessCode(r.code)}))
   });
@@ -613,6 +615,7 @@ app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
         '[]'::json
       ) AS route,
       COUNT(v.id)=4 AS complete,
+      EXISTS (SELECT 1 FROM final_reflections fr WHERE fr.code=a.code) AS final_complete,
       GREATEST(
         COALESCE(MAX(v.created_at), '-infinity'::timestamptz),
         COALESCE(p.updated_at, '-infinity'::timestamptz),
@@ -634,6 +637,7 @@ app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
       progress: Number(row.progress),
       route: row.route,
       complete: row.complete,
+      finalComplete: row.final_complete,
       lastActivity: row.last_activity
     })),
     total,

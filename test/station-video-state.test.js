@@ -284,3 +284,24 @@ test('unauthorized transmission renders GIFs inline and autoplays looping video 
   assert.match(gate, /muted:true/);
   assert.match(gate, /loop:true/);
 });
+
+
+test('wrong-answer image and GIF hints provide an in-page return control instead of requiring a rescan', async () => {
+  const station = await read('../public/station.html');
+  assert.match(station, /gif\|png\|jpe\?g\|webp/);
+  assert.match(station, /if\(options\.onEnded\)controlButton\(controls,options\.continueLabel\|\|'RETURN TO QUESTION',options\.onEnded\)/);
+  assert.match(station, /continueLabel:'RETURN TO QUESTION',onEnded:returnToStationQuestion/);
+});
+
+test('Mission Control tracks final-question completions in summary and active receiver cards', async () => {
+  const server = await read('../server.js');
+  const admin = await read('../public/admin.html');
+  assert.match(server, /final_reflections fr JOIN access_codes a ON a\.code=fr\.code WHERE a\.is_test=FALSE/);
+  assert.match(server, /finalComplete: Number\(finalComplete\.rows\[0\]\.count\)/);
+  assert.match(server, /AS final_complete/);
+  assert.match(server, /finalComplete: row\.final_complete/);
+  assert.match(admin, /FINAL QUESTION COMPLETE/);
+  assert.match(admin, /id="finalComplete"/);
+  assert.match(admin, /data\.finalComplete\|\|0/);
+  assert.match(admin, /receiver\.finalComplete\?'FINAL QUESTION COMPLETE':'FINAL QUESTION PENDING'/);
+});
