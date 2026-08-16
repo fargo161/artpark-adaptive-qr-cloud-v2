@@ -104,7 +104,7 @@ test('response API is cookie-authorized, choice-based, correct-answer gated, ide
   assert.match(endpoint, /videoRole: 'wrong'/);
   assert.match(endpoint, /wrongVideoUrl/);
   assert.match(endpoint, /ON CONFLICT \(code,station\) DO NOTHING/);
-  assert.match(endpoint, /RESPONSE RECORDED \/\/ STATION COMPLETE/);
+  assert.match(endpoint, /stationCompletionMessage\(result\.player\)/);
   assert.doesNotMatch(endpoint, /INSERT INTO visits|UPDATE visits|DELETE FROM visits/);
 });
 

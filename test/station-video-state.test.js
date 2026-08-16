@@ -123,7 +123,7 @@ test('response persistence rejects wrong choices and completes only the configur
   assert.match(endpoint, /wrongVideoUrl/);
   assert.match(endpoint, /videoRole: 'completion'/);
   assert.match(endpoint, /completionVideoUrl/);
-  assert.match(endpoint, /RESPONSE RECORDED \/\/ STATION COMPLETE/);
+  assert.match(endpoint, /stationCompletionMessage\(result\.player\)/);
   const wrongStart = endpoint.indexOf('submittedChoiceIndex !== correctChoiceIndex');
   const insertStart = endpoint.indexOf('INSERT INTO video_answers');
   assert.ok(wrongStart > 0 && insertStart > wrongStart);
@@ -243,4 +243,31 @@ test('test codes use the same real station and final endpoints while remaining i
   const summaryStart = server.indexOf("app.get('/api/admin/summary'");
   const summaryEnd = server.indexOf("app.get('/api/admin/active-receivers'", summaryStart);
   assert.match(server.slice(summaryStart, summaryEnd), /a\.is_test=FALSE/);
+});
+
+
+test('access-code entry is restricted to Start/End while locked Functional stations only direct players to concierge', async () => {
+  const [server, html] = await Promise.all([read('../server.js'), read('../public/station.html')]);
+  const accessStart = server.indexOf("app.post('/api/access'");
+  const accessEnd = server.indexOf("app.post('/api/logout'", accessStart);
+  const accessEndpoint = server.slice(accessStart, accessEnd);
+  assert.match(accessEndpoint, /entryPoint !== 'start-end'/);
+  assert.match(accessEndpoint, /ACCESS_ENTRY_RESTRICTED_TO_START_END/);
+  assert.match(html, /station==='start-end'/);
+  assert.match(html, /accessEntry/);
+  assert.match(html, /classList\.toggle\('hidden',!startEnd\)/);
+  assert.match(html, /CONCIERGE START\/END RECEIVER/);
+  assert.match(html, /entryPoint:'start-end'/);
+});
+
+test('station success copy reports exact remaining identification count and sends the fourth completion back to Start/End', async () => {
+  const [server, html] = await Promise.all([read('../server.js'), read('../public/station.html')]);
+  assert.match(server, /function stationCompletionMessage\(player\)/);
+  assert.match(server, /4 - Number\(player\?\.videoAnswerCount \|\| 0\)/);
+  assert.match(server, /ALL FOUR SIGNALS IDENTIFIED \/\/ RETURN TO START\/END/);
+  assert.match(server, /FRAGMENT REMAINS/);
+  assert.match(server, /FRAGMENTS REMAIN/);
+  assert.match(html, /function identificationSuccessMessage\(player\)/);
+  assert.match(html, /identificationSuccessMessage\(player\)/);
+  assert.match(html, /ALL FOUR SIGNALS IDENTIFIED \/\/ RETURN TO START\/END/);
 });

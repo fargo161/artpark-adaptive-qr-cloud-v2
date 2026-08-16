@@ -274,6 +274,9 @@ app.get('/api/me', async (req, res) => {
 });
 
 app.post('/api/access', async (req, res) => {
+  if (req.body?.entryPoint !== 'start-end') {
+    return res.status(403).json({ error: 'ACCESS_ENTRY_RESTRICTED_TO_START_END' });
+  }
   const result = await authorizeCode(req.body?.accessCode, res);
   if (!result.ok) return res.status(result.status).json({ error: result.error });
   res.status(result.newlyActivated ? 201 : 200).json({
@@ -346,6 +349,12 @@ app.post('/api/scan/:station', async (req, res) => {
     res.status(503).json({ error: 'SIGNAL_TEMPORARILY_UNAVAILABLE', retryable: true });
   }
 });
+
+function stationCompletionMessage(player) {
+  const remaining = Math.max(0, 4 - Number(player?.videoAnswerCount || 0));
+  if (remaining === 0) return 'ALL FOUR SIGNALS IDENTIFIED // RETURN TO START/END';
+  return `SIGNAL IDENTIFIED // ${remaining} ${remaining === 1 ? 'FRAGMENT REMAINS' : 'FRAGMENTS REMAIN'}`;
+}
 
 app.post('/api/response/:station', async (req, res) => {
   const station = normalizeStation(req.params.station);
@@ -426,7 +435,7 @@ app.post('/api/response/:station', async (req, res) => {
   }
   res.json({
     ...result,
-    message: result.accepted ? 'RESPONSE RECORDED // STATION COMPLETE' : result.message
+    message: result.accepted ? stationCompletionMessage(result.player) : result.message
   });
 });
 
