@@ -178,13 +178,19 @@ test('Start/End returns final loop while pending and correct video only after ac
   assert.match(endpoint, /player\.finalReflection\.accepted \? FINAL_PHRASE : null/);
 });
 
-test('player UI explicitly distinguishes pending and complete station states', async () => {
+test('player UI distinguishes unidentified, pending, and identified signal states without revealing station identity', async () => {
   const html = await read('../public/station.html');
-  assert.match(html, /RESPONSE REQUIRED TO COMPLETE THIS STATION/);
-  assert.match(html, /SIGNAL CONFIRMED \/\/ STATION COMPLETE/);
+  assert.match(html, /UNIDENTIFIED BROADCAST/);
+  assert.match(html, /IDENTIFY THIS BROADCAST FRAGMENT TO CONTINUE/);
+  assert.match(html, /SIGNAL CONFIRMED \/\/ IDENTIFICATION ACCEPTED/);
   assert.match(html, /YOUR RESPONSE:/);
   assert.match(html, /REPLAY LOOP/);
   assert.match(html, /REPLAY COMPLETION/);
+  assert.match(html, /SIGNAL FRAGMENTS/);
+  assert.match(html, /FRAGMENT \$\{index\+1\}/);
+  assert.doesNotMatch(html, /\$\{station\.toUpperCase\(\)\} \/\/ YOUR DECISION/);
+  assert.doesNotMatch(html, /stationMeta\.subtitle\.toUpperCase\(\)/);
+  assert.match(html, /startEnd\?data\.stationMeta\.label:'UNIDENTIFIED BROADCAST'/);
 });
 
 test('loop media uses real media looping and mobile-safe autoplay fallback', async () => {
