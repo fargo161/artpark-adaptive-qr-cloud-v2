@@ -14,20 +14,87 @@
     "endVideoUrl": ""
   },
   "stations": {
-    "escape": {"label": "EGRESS", "function": "Escape", "subtitle": "Exit Conditions"},
-    "attention": {"label": "CONTACT", "function": "Attention", "subtitle": "Communications Desk"},
-    "access": {"label": "ACQUISITION", "function": "Access", "subtitle": "Supply Desk"},
-    "sensory": {"label": "RESONANCE", "function": "Sensory", "subtitle": "Internal Weather"}
+    "escape": {
+      "label": "EGRESS",
+      "function": "Escape",
+      "subtitle": "Exit Conditions"
+    },
+    "attention": {
+      "label": "CONTACT",
+      "function": "Attention",
+      "subtitle": "Communications Desk"
+    },
+    "access": {
+      "label": "ACQUISITION",
+      "function": "Access",
+      "subtitle": "Supply Desk"
+    },
+    "sensory": {
+      "label": "RESONANCE",
+      "function": "Sensory",
+      "subtitle": "Internal Weather"
+    }
   },
   "answers": {
-    "escape": {"prompt": "What could YOU do to get out of this situation?", "choices": ["Leave", "Ask for space", "Change the situation", "Wait for an opening"]},
-    "attention": {"prompt": "What could YOU do to get someone to respond?", "choices": ["Speak up", "Ask directly", "Reach out", "Make yourself noticeable"]},
-    "access": {"prompt": "What could YOU do to get what you need?", "choices": ["Ask for it", "Find another way in", "Reach for it", "Trade or exchange"]},
-    "sensory": {"prompt": "What could YOU do to change how this feels?", "choices": ["Move somewhere else", "Change the sound", "Change the light", "Focus on something different"]}
+    "escape": {
+      "prompt": "What could YOU do to get out of this situation?",
+      "choices": [
+        "Leave",
+        "Ask for space",
+        "Change the situation",
+        "Wait for an opening"
+      ],
+      "correctChoiceIndex": 0
+    },
+    "attention": {
+      "prompt": "What could YOU do to get someone to respond?",
+      "choices": [
+        "Speak up",
+        "Ask directly",
+        "Reach out",
+        "Make yourself noticeable"
+      ],
+      "correctChoiceIndex": 0
+    },
+    "access": {
+      "prompt": "What could YOU do to get what you need?",
+      "choices": [
+        "Ask for it",
+        "Find another way in",
+        "Reach for it",
+        "Trade or exchange"
+      ],
+      "correctChoiceIndex": 0
+    },
+    "sensory": {
+      "prompt": "What could YOU do to change how this feels?",
+      "choices": [
+        "Move somewhere else",
+        "Change the sound",
+        "Change the light",
+        "Focus on something different"
+      ],
+      "correctChoiceIndex": 0
+    }
   },
   "finalReflection": {
     "prompt": "What did YOU do to get this far?",
-    "acceptedPhrases": ["choose", "chose", "choice", "decide", "decided", "decision", "participate", "participated", "participation", "I chose", "I decided", "I participated", "me", "agency"],
+    "acceptedPhrases": [
+      "choose",
+      "chose",
+      "choice",
+      "decide",
+      "decided",
+      "decision",
+      "participate",
+      "participated",
+      "participation",
+      "I chose",
+      "I decided",
+      "I participated",
+      "me",
+      "agency"
+    ],
     "retryMessage": "THE SIGNAL IS CLOSE. THINK ABOUT WHAT YOU DID, NOT WHAT YOU FOUND.",
     "acceptedMessage": "FINAL RESPONSE ACCEPTED. CONCIERGE TRANSMISSION UNLOCKED.",
     "videos": {
@@ -37,15 +104,43 @@
     }
   },
   "stages": {
-    "1": {"label": "DETECTION", "intro": "INITIAL SIGNAL CONTACT CONFIRMED."},
-    "2": {"label": "PATTERN", "intro": "SECOND FREQUENCY CONFIRMED. THIS IS NOT AN ISOLATED EVENT."},
-    "3": {"label": "ANOMALY", "intro": "THREE SIGNALS VERIFIED. SOURCE REMAINS UNIDENTIFIED."},
-    "4": {"label": "CONVERGENCE WARNING", "intro": "ALL FOUR FREQUENCIES CONFIRMED. A FIFTH READING SHOULD BE PRESENT."}
+    "1": {
+      "label": "DETECTION",
+      "intro": "INITIAL SIGNAL CONTACT CONFIRMED."
+    },
+    "2": {
+      "label": "PATTERN",
+      "intro": "SECOND FREQUENCY CONFIRMED. THIS IS NOT AN ISOLATED EVENT."
+    },
+    "3": {
+      "label": "ANOMALY",
+      "intro": "THREE SIGNALS VERIFIED. SOURCE REMAINS UNIDENTIFIED."
+    },
+    "4": {
+      "label": "CONVERGENCE WARNING",
+      "intro": "ALL FOUR FREQUENCIES CONFIRMED. A FIFTH READING SHOULD BE PRESENT."
+    }
   },
   "videos": {
-    "escape": {"loopVideoUrl": "", "completionVideoUrl": ""},
-    "attention": {"loopVideoUrl": "", "completionVideoUrl": ""},
-    "access": {"loopVideoUrl": "", "completionVideoUrl": ""},
-    "sensory": {"loopVideoUrl": "", "completionVideoUrl": ""}
+    "escape": {
+      "loopVideoUrl": "",
+      "completionVideoUrl": "",
+      "wrongVideoUrl": ""
+    },
+    "attention": {
+      "loopVideoUrl": "",
+      "completionVideoUrl": "",
+      "wrongVideoUrl": ""
+    },
+    "access": {
+      "loopVideoUrl": "",
+      "completionVideoUrl": "",
+      "wrongVideoUrl": ""
+    },
+    "sensory": {
+      "loopVideoUrl": "",
+      "completionVideoUrl": "",
+      "wrongVideoUrl": ""
+    }
   }
 }

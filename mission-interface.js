@@ -13,16 +13,19 @@ function cleanVideoUrl(value, fallback = '') {
 export function sanitizeStationChoiceDefinition(value, fallback = {}) {
   const prompt = cleanCopy(value?.prompt, fallback.prompt);
   const supplied = Array.isArray(value?.choices) ? value.choices : fallback.choices;
+  const fallbackChoices = (fallback.choices || []).slice(0, 4).map(choice => cleanCopy(choice, '', 120));
   const choices = (Array.isArray(supplied) ? supplied : [])
     .slice(0, 4)
-    .map((choice, index) => cleanCopy(choice, fallback.choices?.[index], 120));
-  if (choices.length !== 4 || choices.some(choice => !choice)) {
-    return {
-      prompt,
-      choices: (fallback.choices || []).slice(0, 4).map(choice => cleanCopy(choice, '', 120))
-    };
-  }
-  return { prompt, choices };
+    .map((choice, index) => cleanCopy(choice, fallbackChoices[index], 120));
+  const finalChoices = choices.length === 4 && choices.every(Boolean) ? choices : fallbackChoices;
+  const suppliedCorrect = Number(value?.correctChoiceIndex);
+  const fallbackCorrect = Number(fallback.correctChoiceIndex);
+  const correctChoiceIndex = Number.isInteger(suppliedCorrect) && suppliedCorrect >= 0 && suppliedCorrect <= 3
+    ? suppliedCorrect
+    : Number.isInteger(fallbackCorrect) && fallbackCorrect >= 0 && fallbackCorrect <= 3
+      ? fallbackCorrect
+      : 0;
+  return { prompt, choices: finalChoices, correctChoiceIndex };
 }
 
 export function sanitizeFinalReflection(value, fallback = {}) {
@@ -51,18 +54,23 @@ export function migrateVideoConfiguration(value = {}, defaults = {}) {
     const legacy = { ...numericSlots, ...(value.deprecatedStageVideos?.[station] || {}) };
     if (Object.keys(legacy).length) deprecatedStageVideos[station] = legacy;
     const hasLoop = Object.prototype.hasOwnProperty.call(current, 'loopVideoUrl');
+    const hasWrong = Object.prototype.hasOwnProperty.call(current, 'wrongVideoUrl');
     const hasCompletion = Object.prototype.hasOwnProperty.call(current, 'completionVideoUrl');
     videos[station] = {
       loopVideoUrl: cleanVideoUrl(
         hasLoop ? current.loopVideoUrl : legacy['1'],
         defaults.videos?.[station]?.loopVideoUrl
       ),
+      wrongVideoUrl: cleanVideoUrl(
+        hasWrong ? current.wrongVideoUrl : undefined,
+        defaults.videos?.[station]?.wrongVideoUrl
+      ),
       completionVideoUrl: cleanVideoUrl(
         hasCompletion ? current.completionVideoUrl : undefined,
         defaults.videos?.[station]?.completionVideoUrl
       )
     };
-    if (!hasLoop || !hasCompletion || Object.keys(numericSlots).length) needsMigration = true;
+    if (!hasLoop || !hasWrong || !hasCompletion || Object.keys(numericSlots).length) needsMigration = true;
   }
   return { videos, deprecatedStageVideos, needsMigration };
 }

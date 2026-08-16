@@ -6,15 +6,15 @@ import { publicVideoAnswers, safeConfigForPlayer } from '../lib.js';
 import { FINAL_PHRASE, sanitizeStationChoiceDefinition, sanitizeFinalReflection, choiceAtIndex } from '../mission-interface.js';
 
 const stations = ['escape','attention','access','sensory'];
-const definition = { prompt: 'What could YOU do?', choices: ['Leave','Ask for space','Wait','Change the situation'] };
+const definition = { prompt: 'What could YOU do?', choices: ['Leave','Ask for space','Wait','Change the situation'], correctChoiceIndex: 0 };
 const finalAccepted = ['choose','chose','decide','decision','participate','I chose'];
 const read = path => fs.readFile(new URL(path, import.meta.url), 'utf8');
 
 test('station definitions retain exactly four visible choices', () => {
   assert.deepEqual(sanitizeStationChoiceDefinition(definition), definition);
-  const fallback = { prompt: 'Fallback?', choices: ['One','Two','Three','Four'] };
+  const fallback = { prompt: 'Fallback?', choices: ['One','Two','Three','Four'], correctChoiceIndex: 2 };
   assert.deepEqual(sanitizeStationChoiceDefinition({ prompt: 'New?', choices: ['Only one'] }, fallback), {
-    prompt: 'New?', choices: fallback.choices
+    prompt: 'New?', choices: fallback.choices, correctChoiceIndex: 2
   });
 });
 
@@ -90,7 +90,7 @@ test('legacy accepted answers are exposed as selected choices after migration', 
   assert.equal(states.escape.selectedChoice, 'legacy response');
 });
 
-test('response API is cookie-authorized, choice-based, idempotent, and route-independent', async () => {
+test('response API is cookie-authorized, choice-based, correct-answer gated, idempotent, and route-independent', async () => {
   const server = await read('../server.js');
   const start = server.indexOf("app.post('/api/response/:station'");
   const end = server.indexOf("app.post('/api/final-reflection'", start);
@@ -99,9 +99,13 @@ test('response API is cookie-authorized, choice-based, idempotent, and route-ind
   assert.match(endpoint, /parseCookies\(req\)\[COOKIE_NAME\]/);
   assert.doesNotMatch(endpoint, /req\.body\?\.accessCode|codeFromRequest|answerMatches/);
   assert.match(endpoint, /choiceAtIndex\(config\.answers\?\.\[station\], req\.body\?\.choiceIndex\)/);
+  assert.match(endpoint, /correctChoiceIndex/);
+  assert.match(endpoint, /submittedChoiceIndex !== correctChoiceIndex/);
+  assert.match(endpoint, /videoRole: 'wrong'/);
+  assert.match(endpoint, /wrongVideoUrl/);
   assert.match(endpoint, /ON CONFLICT \(code,station\) DO NOTHING/);
   assert.match(endpoint, /RESPONSE RECORDED \/\/ STATION COMPLETE/);
-  assert.doesNotMatch(endpoint, /INSERT INTO visits|UPDATE visits|DELETE FROM visits|correct|incorrect|try again/i);
+  assert.doesNotMatch(endpoint, /INSERT INTO visits|UPDATE visits|DELETE FROM visits/);
 });
 
 test('one station response creates one locked state and duplicate requests reuse it', async () => {
@@ -172,12 +176,16 @@ test('canonical phrase is absent from pre-final config and player HTML', async (
   assert.doesNotMatch(stationHtml, /DECISIONS ARE[\s\S]{0,160}PORTALS|PORTALS ARE[\s\S]{0,160}DECISIONS/);
 });
 
-test('player station renders four buttons and has no station correct-or-wrong loop', async () => {
+test('player station renders four buttons, plays wrong-answer hint video, and retries without completion', async () => {
   const html = await read('../public/station.html');
   assert.match(html, /for\(const \[choiceIndex,choice\] of choices\.entries\(\)\)/);
   assert.match(html, /fetch\(`\/api\/response\/\$\{station\}`/);
   assert.match(html, /body:JSON\.stringify\(\{choiceIndex\}\)/);
-  assert.doesNotMatch(html, /api\/answer|acceptedPhrases|INCORRECT|TRY ANOTHER SHORT PHRASE/i);
+  assert.match(html, /playWrongStationResponse/);
+  assert.match(html, /WRONG ANSWER \/\/ HINT VIDEO/);
+  assert.match(html, /RETURN TO QUESTION/);
+  assert.match(html, /if\(!data\.accepted\)/);
+  assert.doesNotMatch(html, /api\/answer|acceptedPhrases/i);
 });
 
 test('player station final input appears only when server marks it available', async () => {
@@ -187,11 +195,13 @@ test('player station final input appears only when server marks it available', a
   assert.match(html, /data\.finalPhrase/);
 });
 
-test('Mission Control edits four choices and every final-reflection field', async () => {
+test('Mission Control edits four choices, the correct choice, and every final-reflection field', async () => {
   const admin = await read('../public/admin.html');
   assert.match(admin, /Reflective Station Responses/);
   assert.match(admin, /dataset\.answerChoice/);
   assert.match(admin, /index<4/);
+  assert.match(admin, /dataset\.correctChoice/);
+  assert.match(admin, /correctChoiceIndex/);
   assert.match(admin, /finalAcceptedPhrasesInput/);
   assert.match(admin, /saveFinalReflectionConfig/);
   assert.match(admin, /saveFinalReflectionButton\.addEventListener/);

@@ -35,10 +35,10 @@ test('persisted response is the single authoritative station-complete definition
   });
 });
 
-test('each Functional station has exactly loop and completion video roles', async () => {
+test('each Functional station has loop, wrong, and completion video roles', async () => {
   const config = JSON.parse(await read('../config.default.json'));
   for (const station of stations) {
-    assert.deepEqual(Object.keys(config.videos[station]).sort(), ['completionVideoUrl','loopVideoUrl']);
+    assert.deepEqual(Object.keys(config.videos[station]).sort(), ['completionVideoUrl','loopVideoUrl','wrongVideoUrl']);
   }
 });
 
@@ -60,16 +60,18 @@ test('legacy Stage 1 becomes loop while every Stage 1-4 URL is retained in backu
   assert.equal(migrated.needsMigration, true);
   for (const station of stations) {
     assert.equal(migrated.videos[station].loopVideoUrl, legacy.videos[station]['1']);
+    assert.equal(migrated.videos[station].wrongVideoUrl, '');
     assert.equal(migrated.videos[station].completionVideoUrl, '');
     assert.deepEqual(migrated.deprecatedStageVideos[station], legacy.videos[station]);
   }
 });
 
-test('new loop/completion URLs are never overwritten by legacy stage URLs', () => {
+test('new loop/wrong/completion URLs are never overwritten by legacy stage URLs', () => {
   const value = {
     videos: {
       escape: {
         loopVideoUrl: 'https://new.example/loop.mp4',
+        wrongVideoUrl: 'https://new.example/wrong.mp4',
         completionVideoUrl: 'https://new.example/complete.mp4',
         '1': 'https://old.example/stage-one.mp4'
       }
@@ -79,6 +81,7 @@ test('new loop/completion URLs are never overwritten by legacy stage URLs', () =
   const migrated = migrateVideoConfiguration(value, { videos: {} });
   assert.deepEqual(migrated.videos.escape, {
     loopVideoUrl: 'https://new.example/loop.mp4',
+    wrongVideoUrl: 'https://new.example/wrong.mp4',
     completionVideoUrl: 'https://new.example/complete.mp4'
   });
   assert.equal(migrated.deprecatedStageVideos.escape['1'], 'https://old.example/stage-one.mp4');
@@ -87,7 +90,7 @@ test('new loop/completion URLs are never overwritten by legacy stage URLs', () =
 
 test('video-role migration is idempotent after role fields exist', () => {
   const value = { videos: Object.fromEntries(stations.map(station => [station, {
-    loopVideoUrl: `${station}-loop`, completionVideoUrl: `${station}-complete`
+    loopVideoUrl: `${station}-loop`, wrongVideoUrl: `${station}-wrong`, completionVideoUrl: `${station}-complete`
   }])) };
   const first = migrateVideoConfiguration(value, { videos: {} });
   const second = migrateVideoConfiguration({ videos: first.videos, deprecatedStageVideos: first.deprecatedStageVideos }, { videos: {} });
@@ -108,15 +111,23 @@ test('Functional scan selects loop before response and completion after response
   assert.match(endpoint, /stageMeta: config\.stages\[String\(stage\)\]/);
 });
 
-test('response persistence returns station-complete state and completion video', async () => {
+test('response persistence rejects wrong choices and completes only the configured correct choice', async () => {
   const server = await read('../server.js');
   const start = server.indexOf("app.post('/api/response/:station'");
   const end = server.indexOf("app.post('/api/final-reflection'", start);
   const endpoint = server.slice(start, end);
-  assert.match(endpoint, /missionState: player\.stationMissions\[station\]/);
+  assert.match(endpoint, /correctChoiceIndex/);
+  assert.match(endpoint, /submittedChoiceIndex !== correctChoiceIndex/);
+  assert.match(endpoint, /accepted: false/);
+  assert.match(endpoint, /videoRole: 'wrong'/);
+  assert.match(endpoint, /wrongVideoUrl/);
   assert.match(endpoint, /videoRole: 'completion'/);
   assert.match(endpoint, /completionVideoUrl/);
   assert.match(endpoint, /RESPONSE RECORDED \/\/ STATION COMPLETE/);
+  const wrongStart = endpoint.indexOf('submittedChoiceIndex !== correctChoiceIndex');
+  const insertStart = endpoint.indexOf('INSERT INTO video_answers');
+  assert.ok(wrongStart > 0 && insertStart > wrongStart);
+  assert.doesNotMatch(endpoint.slice(wrongStart, insertStart), /INSERT INTO video_answers/);
   assert.doesNotMatch(endpoint, /INSERT INTO visits|UPDATE visits|DELETE FROM visits/);
 });
 
@@ -204,9 +215,10 @@ test('canonical phrase is absent from every pre-final template and config', asyn
 test('Mission Control exposes eight Functional and three final video roles without stage inputs', async () => {
   const html = await read('../public/admin.html');
   assert.match(html, /dataset\.videoRole='loopVideoUrl'/);
+  assert.match(html, /dataset\.videoRole='wrongVideoUrl'/);
   assert.match(html, /dataset\.videoRole='completionVideoUrl'/);
   assert.match(html, /FINAL QUESTION \/\/ LOOP VIDEO/);
-  assert.match(html, /FINAL QUESTION \/\/ WRONG ANSWER VIDEO/);
+  assert.match(html, /FINAL QUESTION \/\/ HINT \/ WRONG ANSWER VIDEO/);
   assert.match(html, /FINAL QUESTION \/\/ CORRECT ANSWER VIDEO/);
   assert.doesNotMatch(html, /data-stage|\/\/ STAGE \$\{stage\}/);
 });

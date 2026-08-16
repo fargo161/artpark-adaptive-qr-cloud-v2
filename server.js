@@ -156,7 +156,9 @@ async function getContentConfig(client = pool) {
     };
     const needsMigration = videoMigration.needsMigration || !stored.startEnd ||
       !stored.finalReflection?.videos || STATIONS.some(station => (
-      !stored.answers?.[station]?.prompt || stored.answers?.[station]?.choices?.length !== 4
+      !stored.answers?.[station]?.prompt ||
+      stored.answers?.[station]?.choices?.length !== 4 ||
+      !Number.isInteger(Number(stored.answers?.[station]?.correctChoiceIndex))
     ));
     if (needsMigration) {
       await client.query("UPDATE app_settings SET value=$1::jsonb,updated_at=NOW() WHERE key='content_config'", [JSON.stringify(merged)]);
@@ -329,6 +331,7 @@ app.post('/api/scan/:station', async (req, res) => {
           ? config.videos?.[station]?.completionVideoUrl || ''
           : config.videos?.[station]?.loopVideoUrl || '',
         loopVideoUrl: config.videos?.[station]?.loopVideoUrl || '',
+        wrongVideoUrl: config.videos?.[station]?.wrongVideoUrl || '',
         answerPrompt: config.answers?.[station]?.prompt || '',
         answerChoices: config.answers?.[station]?.choices || [],
         answerState: player.videoAnswers[station]
@@ -370,6 +373,25 @@ app.post('/api/response/:station', async (req, res) => {
 
     const selectedChoice = choiceAtIndex(config.answers?.[station], req.body?.choiceIndex);
     if (!selectedChoice) return { error: 'INVALID_CHOICE', status: 400 };
+    const correctChoiceIndex = Number(config.answers?.[station]?.correctChoiceIndex);
+    const submittedChoiceIndex = Number(req.body?.choiceIndex);
+    if (!Number.isInteger(correctChoiceIndex) || correctChoiceIndex < 0 || correctChoiceIndex > 3) {
+      return { error: 'STATION_CORRECT_CHOICE_NOT_CONFIGURED', status: 503 };
+    }
+    if (submittedChoiceIndex !== correctChoiceIndex) {
+      const player = await playerRecord(code, client);
+      return {
+        accepted: false,
+        duplicate: false,
+        message: 'RESPONSE NOT CONFIRMED // REVIEW THE SIGNAL AND TRY AGAIN',
+        selectedChoice,
+        missionState: player.stationMissions[station],
+        player,
+        videoRole: 'wrong',
+        videoUrl: config.videos?.[station]?.wrongVideoUrl || '',
+        loopVideoUrl: config.videos?.[station]?.loopVideoUrl || ''
+      };
+    }
     const inserted = await client.query(
       `INSERT INTO video_answers(code,station,accepted_answer,selected_choice)
        VALUES($1,$2,$3,$3)
@@ -393,7 +415,8 @@ app.post('/api/response/:station', async (req, res) => {
       missionState: player.stationMissions[station],
       player,
       videoRole: 'completion',
-      videoUrl: config.videos?.[station]?.completionVideoUrl || ''
+      videoUrl: config.videos?.[station]?.completionVideoUrl || '',
+      loopVideoUrl: config.videos?.[station]?.loopVideoUrl || ''
     };
   });
 
@@ -403,7 +426,7 @@ app.post('/api/response/:station', async (req, res) => {
   }
   res.json({
     ...result,
-    message: 'RESPONSE RECORDED // STATION COMPLETE'
+    message: result.accepted ? 'RESPONSE RECORDED // STATION COMPLETE' : result.message
   });
 });
 
@@ -753,7 +776,13 @@ app.put('/api/admin/config', requireAdmin, async (req, res) => {
     station,
     sanitizeStationChoiceDefinition(next.answers?.[station], current.answers?.[station])
   ]));
-  if (STATIONS.some(station => !answers[station].prompt || answers[station].choices.length !== 4)) {
+  if (STATIONS.some(station =>
+    !answers[station].prompt ||
+    answers[station].choices.length !== 4 ||
+    !Number.isInteger(answers[station].correctChoiceIndex) ||
+    answers[station].correctChoiceIndex < 0 ||
+    answers[station].correctChoiceIndex > 3
+  )) {
     return res.status(400).json({ error: 'INVALID_ANSWER_CONFIG' });
   }
   const finalReflection = sanitizeFinalReflection(next.finalReflection, current.finalReflection);
