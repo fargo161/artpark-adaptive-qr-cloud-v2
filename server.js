@@ -56,7 +56,7 @@ if (!ADMIN_KEY) {
 
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '256kb' }));
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0, etag: true, lastModified: true }));
 
 function parseCookies(req) {
   const raw = req.headers.cookie || '';
@@ -833,3 +833,4 @@ start().catch(error => {
   console.error(error);
   process.exit(1);
 });
+
