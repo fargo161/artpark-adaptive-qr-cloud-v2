@@ -24,6 +24,7 @@ import {
   formatAccessCode,
   publicVisits,
   publicVideoAnswers,
+  stationMissionState,
   safeConfigForPlayer
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
@@ -32,6 +33,7 @@ import {
   FINAL_PHRASE,
   sanitizeStationChoiceDefinition,
   sanitizeFinalReflection,
+  migrateVideoConfiguration,
   choiceAtIndex
 } from './mission-interface.js';
 
@@ -136,6 +138,7 @@ async function getContentConfig(client = pool) {
   const defaults = await getDefaultConfig();
   if (result.rows[0]?.value) {
     const stored = result.rows[0].value;
+    const videoMigration = migrateVideoConfiguration(stored, defaults);
     const merged = {
       ...defaults,
       ...stored,
@@ -148,9 +151,11 @@ async function getContentConfig(client = pool) {
       ])),
       finalReflection: sanitizeFinalReflection(stored.finalReflection, defaults.finalReflection),
       stages: { ...defaults.stages, ...(stored.stages || {}) },
-      videos: { ...defaults.videos, ...(stored.videos || {}) }
+      videos: videoMigration.videos,
+      deprecatedStageVideos: videoMigration.deprecatedStageVideos
     };
-    const needsMigration = !stored.startEnd || !stored.finalReflection || STATIONS.some(station => (
+    const needsMigration = videoMigration.needsMigration || !stored.startEnd ||
+      !stored.finalReflection?.videos || STATIONS.some(station => (
       !stored.answers?.[station]?.prompt || stored.answers?.[station]?.choices?.length !== 4
     ));
     if (needsMigration) {
@@ -179,17 +184,23 @@ async function playerRecord(code, client = pool) {
   const visits = await client.query('SELECT station, stage, created_at FROM visits WHERE code=$1 ORDER BY stage', [code]);
   const answers = await client.query('SELECT station, selected_choice, completed_at FROM video_answers WHERE code=$1 ORDER BY station', [code]);
   const final = await client.query('SELECT submitted_answer,completed_at FROM final_reflections WHERE code=$1', [code]);
+  const publicVisitRows = publicVisits(visits.rows);
   const complete = visits.rows.length >= 4;
   const videoAnswers = publicVideoAnswers(answers.rows);
   const videoAnswerCount = answers.rows.length;
+  const stationMissions = Object.fromEntries(STATIONS.map(station => [
+    station,
+    stationMissionState(publicVisitRows, videoAnswers, station)
+  ]));
   return {
     accessCode: formatAccessCode(code),
     status: complete ? 'complete' : access.rows[0].status,
     active: access.rows[0].status === 'active',
     test: access.rows[0].is_test,
-    visits: publicVisits(visits.rows),
+    visits: publicVisitRows,
     complete,
     videoAnswers,
+    stationMissions,
     videoAnswerCount,
     videoRoundComplete: videoAnswerCount >= 4,
     finalReflection: final.rows[0] ? {
@@ -303,6 +314,8 @@ app.post('/api/scan/:station', async (req, res) => {
 
       const config = await getContentConfig(client);
       const player = await playerRecord(code, client);
+      const missionState = player.stationMissions[station];
+      const videoRole = missionState.responseComplete ? 'completion' : 'loop';
       return {
         player,
         station,
@@ -310,7 +323,12 @@ app.post('/api/scan/:station', async (req, res) => {
         stage,
         stageMeta: config.stages[String(stage)],
         duplicate,
-        videoUrl: config.videos?.[station]?.[String(stage)] || '',
+        missionState,
+        videoRole,
+        videoUrl: videoRole === 'completion'
+          ? config.videos?.[station]?.completionVideoUrl || ''
+          : config.videos?.[station]?.loopVideoUrl || '',
+        loopVideoUrl: config.videos?.[station]?.loopVideoUrl || '',
         answerPrompt: config.answers?.[station]?.prompt || '',
         answerChoices: config.answers?.[station]?.choices || [],
         answerState: player.videoAnswers[station]
@@ -336,18 +354,20 @@ app.post('/api/response/:station', async (req, res) => {
     const access = await lockAccessCode(client, code);
     if (!access || access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
     await ensurePlayerIdentity(client, code);
+    const config = await getContentConfig(client);
     const existing = await client.query(
       'SELECT selected_choice,completed_at FROM video_answers WHERE code=$1 AND station=$2',
       [code, station]
     );
     if (existing.rows[0]) {
+      const player = await playerRecord(code, client);
       return { accepted: true, duplicate: true, answerState: {
         selectedChoice: existing.rows[0].selected_choice,
         completedAt: existing.rows[0].completed_at
-      }, player: await playerRecord(code, client) };
+      }, missionState: player.stationMissions[station], player,
+      videoRole: 'completion', videoUrl: config.videos?.[station]?.completionVideoUrl || '' };
     }
 
-    const config = await getContentConfig(client);
     const selectedChoice = choiceAtIndex(config.answers?.[station], req.body?.choiceIndex);
     if (!selectedChoice) return { error: 'INVALID_CHOICE', status: 400 };
     const inserted = await client.query(
@@ -362,6 +382,7 @@ app.post('/api/response/:station', async (req, res) => {
       [code, station]
     )).rows[0];
     await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
+    const player = await playerRecord(code, client);
     return {
       accepted: true,
       duplicate: !inserted.rows[0],
@@ -369,7 +390,10 @@ app.post('/api/response/:station', async (req, res) => {
         selectedChoice: answerState.selected_choice,
         completedAt: answerState.completed_at
       },
-      player: await playerRecord(code, client)
+      missionState: player.stationMissions[station],
+      player,
+      videoRole: 'completion',
+      videoUrl: config.videos?.[station]?.completionVideoUrl || ''
     };
   });
 
@@ -379,7 +403,7 @@ app.post('/api/response/:station', async (req, res) => {
   }
   res.json({
     ...result,
-    message: 'DECISION LOGGED'
+    message: 'RESPONSE RECORDED // STATION COMPLETE'
   });
 });
 
@@ -395,16 +419,22 @@ app.post('/api/final-reflection', async (req, res) => {
     if (!access || access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
     await ensurePlayerIdentity(client, code);
     const player = await playerRecord(code, client);
-    if (!player.complete || !player.videoRoundComplete) {
+    if (!player.videoRoundComplete) {
       return { error: 'FINAL_REFLECTION_LOCKED', status: 409 };
     }
+    const config = await getContentConfig(client);
     if (player.finalReflection.accepted) {
-      return { accepted: true, duplicate: true, player, finalPhrase: FINAL_PHRASE };
+      return {
+        accepted: true, duplicate: true, player, finalPhrase: FINAL_PHRASE,
+        videoRole: 'correct', videoUrl: config.finalReflection.videos.correctVideoUrl
+      };
     }
 
-    const config = await getContentConfig(client);
     if (!answerMatches(rawAnswer, config.finalReflection.acceptedPhrases)) {
-      return { accepted: false, message: config.finalReflection.retryMessage };
+      return {
+        accepted: false, message: config.finalReflection.retryMessage,
+        videoRole: 'wrong', videoUrl: config.finalReflection.videos.wrongVideoUrl
+      };
     }
     const submittedAnswer = normalizeAnswer(rawAnswer);
     const inserted = await client.query(
@@ -420,7 +450,9 @@ app.post('/api/final-reflection', async (req, res) => {
       duplicate: !inserted.rows[0],
       player: await playerRecord(code, client),
       message: config.finalReflection.acceptedMessage,
-      finalPhrase: FINAL_PHRASE
+      finalPhrase: FINAL_PHRASE,
+      videoRole: 'correct',
+      videoUrl: config.finalReflection.videos.correctVideoUrl
     };
   });
 
@@ -443,7 +475,7 @@ app.post('/api/start-end', async (req, res) => {
   const player = await playerRecord(code);
   const config = await getContentConfig();
   const framingState = player.complete ? 'end' : 'start';
-  const finalAvailable = player.complete && player.videoRoundComplete;
+  const finalAvailable = player.videoRoundComplete;
   res.json({
     player,
     framingState,
@@ -458,7 +490,11 @@ app.post('/api/start-end', async (req, res) => {
       prompt: config.finalReflection.prompt,
       retryMessage: config.finalReflection.retryMessage,
       acceptedMessage: config.finalReflection.acceptedMessage,
-      finalPhrase: player.finalReflection.accepted ? FINAL_PHRASE : null
+      finalPhrase: player.finalReflection.accepted ? FINAL_PHRASE : null,
+      videoRole: player.finalReflection.accepted ? 'correct' : 'loop',
+      videoUrl: player.finalReflection.accepted
+        ? config.finalReflection.videos.correctVideoUrl
+        : config.finalReflection.videos.loopVideoUrl
     }
   });
 });
@@ -725,13 +761,19 @@ app.put('/api/admin/config', requireAdmin, async (req, res) => {
       !finalReflection.retryMessage || !finalReflection.acceptedMessage) {
     return res.status(400).json({ error: 'INVALID_FINAL_REFLECTION_CONFIG' });
   }
+  const videoMigration = migrateVideoConfiguration(next, current);
   const merged = {
     ...current,
     ...next,
     stations: next.stations || current.stations,
     answers,
     finalReflection,
-    stages: next.stages || current.stages
+    stages: next.stages || current.stages,
+    videos: videoMigration.videos,
+    deprecatedStageVideos: {
+      ...(current.deprecatedStageVideos || {}),
+      ...videoMigration.deprecatedStageVideos
+    }
   };
   await setContentConfig(merged);
   res.json(merged);

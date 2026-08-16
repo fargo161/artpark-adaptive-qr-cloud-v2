@@ -51,7 +51,7 @@ test('Start/End client preserves the access gate and does not join functional sc
   assert.match(html, /station==='start-end'/);
   assert.match(html, /startEnd\?'\/api\/start-end':`\/api\/scan\/\$\{station\}`/);
   assert.match(html, /fetch\('\/api\/access'/);
-  assert.match(html, /d\.framingState==='end'/);
+  assert.match(html, /data\.framingState==='end'/);
 });
 
 test('Mission Control exposes authenticated QR metadata and asset endpoints without database mutation', async () => {
@@ -67,10 +67,14 @@ test('Mission Control exposes authenticated QR metadata and asset endpoints with
   assert.doesNotMatch(endpoints, /pool\.query|withTransaction|\b(?:INSERT|UPDATE|DELETE)\b/);
 });
 
-test('Mission Control preserves all existing video fields and adds two Start/End slots', async () => {
+test('Mission Control preserves Start/End and exposes state-based station and final video roles', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
   assert.match(html, /START\/END \/\/ START VIDEO/);
   assert.match(html, /START\/END \/\/ END VIDEO/);
+  assert.match(html, /LOOP VIDEO/);
+  assert.match(html, /COMPLETION VIDEO/);
+  assert.match(html, /FINAL QUESTION \/\/ WRONG ANSWER VIDEO/);
+  assert.match(html, /FINAL QUESTION \/\/ CORRECT ANSWER VIDEO/);
   assert.match(html, /QR Code Generator/i);
   assert.match(html, /DOWNLOAD PNG/);
   assert.match(html, /DOWNLOAD SVG/);

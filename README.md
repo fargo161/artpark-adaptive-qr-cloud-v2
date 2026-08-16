@@ -11,7 +11,7 @@ You deploy this app **once** to an always-on cloud host with a PostgreSQL databa
 - one unique access code = one player/group = one persistent progress record;
 - the player enters the code once, and the browser remembers them with a secure cookie;
 - the cloud database remembers discovery order;
-- the correct station × stage video is selected automatically;
+- each Functional station loops its pending video until a response is recorded, then uses its completion video;
 - your concierge laptop is **not required for the game to keep running**;
 - your phone or laptop is only an optional Broadcast Monitor.
 
@@ -25,14 +25,14 @@ The physical rubber stamps remain the proof that a lockbox was actually solved. 
 4. The app sets a long-lived browser cookie and activates that code.
 5. That station becomes discovery Stage 1.
 6. Next new station becomes Stage 2, etc.
-7. Re-scanning a station replays its original stage and does not advance the route.
+7. Re-scanning a station preserves its original stage and does not advance the route.
 8. On another phone, entering the same code restores the same server-side progress.
 
-After each Functional station video, the reflective round asks a station-specific **What could YOU do...?** question and displays exactly four choices. Every displayed choice is valid: the interaction records participation and self-positioning, not quiz correctness. The first selected choice is locked, remains visible on revisit, and is stored once per code/station.
+At each Functional station, the loop video and four-choice **What could YOU do...?** prompt remain available until a choice is persisted. A visit activates the station but does not complete its mission. Every displayed choice is valid: the interaction records participation and self-positioning, not quiz correctness. The first selected choice is locked, plays that station's completion video, remains visible on revisit, and is stored once per code/station.
 
 Reflective-response state is independent from the Functional discovery route and physical stamps. Selecting a choice does not create a visit or change its stage. One response at each of the four stations sets the authoritative `videoRoundComplete` state.
 
-After the Functional route and all four reflective responses are complete, Start/End exposes one final free-text reflection. The default question is **What did YOU do to get this far?** Matching is forgiving, deterministic, and server-side: it ignores case, harmless punctuation, apostrophe differences, and repeated whitespace while using token-aware configured keywords and phrases. An unrelated response receives a gentle, unlimited retry and does not alter progress.
+After all four reflective responses are complete, Start/End exposes one final free-text reflection; visits alone cannot unlock it. The final question has a loop video plus separate wrong- and correct-answer videos. The default question is **What did YOU do to get this far?** Matching is forgiving, deterministic, and server-side: it ignores case, harmless punctuation, apostrophe differences, and repeated whitespace while using token-aware configured keywords and phrases. An unrelated response plays the wrong-answer video, persists nothing, and returns to an unlimited retry.
 
 An accepted final reflection reveals the canonical concierge phrase. Fragments using the vocabulary of decisions, portals, choosing, opening, and crossing are intentionally distributed through the player interface, but the full phrase is returned by the server and displayed only after final acceptance.
 
@@ -80,10 +80,10 @@ It shows:
 - player lookup by field access code;
 - route reset;
 - route repair/reconstruction;
-- editable URLs for all 16 station × stage video slots;
+- editable loop and completion URLs for each of the four Functional stations;
 - editable unauthorized/"come back later" video URL.
 - editable player prompts and four choices for every Functional station;
-- editable final prompt, accepted phrases, retry copy, and completion copy;
+- editable final prompt, accepted phrases, retry copy, completion copy, and loop/wrong/correct video URLs;
 - per-player selected responses, reflective completion, final-response state, normalized submission, and timestamps.
 
 ### Code lifecycle
@@ -121,9 +121,9 @@ A row lock on the player record serializes simultaneous scans. If two members of
 
 Mission Control's **Reflective Station Responses** section provides one prompt and exactly four editable choices for Escape, Attention, Access, and Sensory. All four are accepted. Selections are stored once under unique key `(code, station)` with the selected copy and completion timestamp; revisiting preserves the first response.
 
-The separate **Final Reflection** editor controls its prompt, accepted keyword/phrase family, gentle retry copy, and accepted copy. Final matching happens only on the server, and accepted lists are never included in player configuration or station HTML. The canonical concierge phrase is likewise absent from pre-final templates/config and is returned only after an accepted final submission.
+The separate **Final Reflection** editor controls its prompt, accepted keyword/phrase family, gentle retry copy, accepted copy, and loop/wrong/correct video URLs. Final matching happens only on the server, and accepted lists are never included in player configuration or station HTML. The canonical concierge phrase is likewise absent from pre-final templates/config and is returned only after an accepted final submission.
 
-The backward-safe schema migration adds `selected_choice`, backfills it from every existing `accepted_answer`, and retains the legacy column so deployed completion rows remain intact. Previously stored station keyword definitions are replaced by editable four-choice defaults while preserving station prompts. Existing access codes, player identities, routes, video URLs, and QR destinations are not regenerated or overwritten.
+The backward-safe schema migration adds `selected_choice`, backfills it from every existing `accepted_answer`, and retains the legacy column so deployed completion rows remain intact. Previously stored station keyword definitions are replaced by editable four-choice defaults while preserving station prompts. Legacy Stage 1–4 video fields are copied into `deprecatedStageVideos`; each station's prior Stage 1 URL seeds its loop role only when no newer role configuration exists. Completion and final video roles default blank for an operator to configure. Existing access codes, player identities, routes, video URLs, and QR destinations are not regenerated or overwritten.
 
 ## Important weak-signal behavior
 
@@ -142,6 +142,8 @@ The admin dashboard accepts:
 - normal YouTube URLs (embedded automatically);
 - direct `.mp4`, `.webm`, or `.ogg` URLs (native mobile video player);
 - other external URLs (open as external transmission).
+
+Mission Control groups video routing into Start/End, Functional Stations, Unauthorized, and Final Question. Each Functional station has exactly `loopVideoUrl` and `completionVideoUrl`; the final question has exactly `loopVideoUrl`, `wrongVideoUrl`, and `correctVideoUrl`. Discovery Stage 1–4 remains route history and no longer selects Functional video content.
 
 Mission Control preserves those 17 fields and adds `START/END // START VIDEO` and `START/END // END VIDEO`. Existing persisted values are merged with these new empty defaults rather than overwritten.
 

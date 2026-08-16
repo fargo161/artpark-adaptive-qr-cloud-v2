@@ -5,7 +5,7 @@ import { STATION_ROUTES, START_END_ROUTE, normalizeAccessCode, formatAccessCode,
 
 test('admin controls use explicit DOM references and event listeners without raw admin key', async () => {
   const html = await fs.readFile(new URL('../public/admin.html', import.meta.url), 'utf8');
-  for (const id of ['passphrase','operator','connect','refresh','logout','refreshActive','activeSort','loadMoreActive','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig','finalPrompt','finalAcceptedPhrases','finalRetryMessage','finalAcceptedMessage','saveFinalReflection']) {
+  for (const id of ['passphrase','operator','connect','refresh','logout','refreshActive','activeSort','loadMoreActive','issueCode','lookupCode','lookup','saveRoute','resetPlayer','saveConfig','finalPrompt','finalAcceptedPhrases','finalRetryMessage','finalAcceptedMessage','finalLoopVideo','finalWrongVideo','finalCorrectVideo','saveFinalReflection']) {
     assert.match(html, new RegExp(`byId\\('${id}'\\)`));
   }
   assert.doesNotMatch(html, /\.(?:onclick|onkeydown)\s*=/);

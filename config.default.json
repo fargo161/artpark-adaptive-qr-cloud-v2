@@ -29,7 +29,12 @@
     "prompt": "What did YOU do to get this far?",
     "acceptedPhrases": ["choose", "chose", "choice", "decide", "decided", "decision", "participate", "participated", "participation", "I chose", "I decided", "I participated", "me", "agency"],
     "retryMessage": "THE SIGNAL IS CLOSE. THINK ABOUT WHAT YOU DID, NOT WHAT YOU FOUND.",
-    "acceptedMessage": "FINAL RESPONSE ACCEPTED. CONCIERGE TRANSMISSION UNLOCKED."
+    "acceptedMessage": "FINAL RESPONSE ACCEPTED. CONCIERGE TRANSMISSION UNLOCKED.",
+    "videos": {
+      "loopVideoUrl": "",
+      "wrongVideoUrl": "",
+      "correctVideoUrl": ""
+    }
   },
   "stages": {
     "1": {"label": "DETECTION", "intro": "INITIAL SIGNAL CONTACT CONFIRMED."},
@@ -38,9 +43,9 @@
     "4": {"label": "CONVERGENCE WARNING", "intro": "ALL FOUR FREQUENCIES CONFIRMED. A FIFTH READING SHOULD BE PRESENT."}
   },
   "videos": {
-    "escape": {"1": "", "2": "", "3": "", "4": ""},
-    "attention": {"1": "", "2": "", "3": "", "4": ""},
-    "access": {"1": "", "2": "", "3": "", "4": ""},
-    "sensory": {"1": "", "2": "", "3": "", "4": ""}
+    "escape": {"loopVideoUrl": "", "completionVideoUrl": ""},
+    "attention": {"loopVideoUrl": "", "completionVideoUrl": ""},
+    "access": {"loopVideoUrl": "", "completionVideoUrl": ""},
+    "sensory": {"loopVideoUrl": "", "completionVideoUrl": ""}
   }
 }

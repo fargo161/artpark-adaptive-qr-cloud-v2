@@ -48,7 +48,8 @@ test('final configuration sanitizes prompt, rules, and player-facing copy', () =
   });
   assert.deepEqual(result, {
     prompt: 'What did YOU do?', acceptedPhrases: ['Chose'],
-    retryMessage: 'Think about your action.', acceptedMessage: 'Accepted.'
+    retryMessage: 'Think about your action.', acceptedMessage: 'Accepted.',
+    videos: { loopVideoUrl: '', wrongVideoUrl: '', correctVideoUrl: '' }
   });
 });
 
@@ -99,7 +100,7 @@ test('response API is cookie-authorized, choice-based, idempotent, and route-ind
   assert.doesNotMatch(endpoint, /req\.body\?\.accessCode|codeFromRequest|answerMatches/);
   assert.match(endpoint, /choiceAtIndex\(config\.answers\?\.\[station\], req\.body\?\.choiceIndex\)/);
   assert.match(endpoint, /ON CONFLICT \(code,station\) DO NOTHING/);
-  assert.match(endpoint, /DECISION LOGGED/);
+  assert.match(endpoint, /RESPONSE RECORDED \/\/ STATION COMPLETE/);
   assert.doesNotMatch(endpoint, /INSERT INTO visits|UPDATE visits|DELETE FROM visits|correct|incorrect|try again/i);
 });
 
@@ -120,12 +121,13 @@ test('schema migrates legacy answer rows without discarding production data', as
   assert.doesNotMatch(schema, /DROP TABLE video_answers|TRUNCATE/);
 });
 
-test('final reflection is locked until both progress systems reach four of four', async () => {
+test('final reflection is locked until all four authoritative station responses exist', async () => {
   const server = await read('../server.js');
   const start = server.indexOf("app.post('/api/final-reflection'");
   const end = server.indexOf("app.post('/api/start-end'", start);
   const endpoint = server.slice(start, end);
-  assert.match(endpoint, /!player\.complete \|\| !player\.videoRoundComplete/);
+  assert.match(endpoint, /!player\.videoRoundComplete/);
+  assert.doesNotMatch(endpoint, /!player\.complete/);
   assert.match(endpoint, /FINAL_REFLECTION_LOCKED/);
   assert.doesNotMatch(endpoint, /INSERT INTO visits|UPDATE visits|DELETE FROM visits/);
 });
@@ -182,7 +184,7 @@ test('player station final input appears only when server marks it available', a
   const html = await read('../public/station.html');
   assert.match(html, /classList\.toggle\('hidden',!state\.available\)/);
   assert.match(html, /fetch\('\/api\/final-reflection'/);
-  assert.match(html, /d\.finalPhrase/);
+  assert.match(html, /data\.finalPhrase/);
 });
 
 test('Mission Control edits four choices and every final-reflection field', async () => {
@@ -197,10 +199,10 @@ test('Mission Control edits four choices and every final-reflection field', asyn
 
 test('Mission Control lookup reports selected responses and final state', async () => {
   const admin = await read('../public/admin.html');
-  assert.match(admin, /state\.selectedChoice/);
+  assert.match(admin, /mission\.selectedChoice/);
   assert.match(admin, /REFLECTIVE RESPONSES/);
   assert.match(admin, /RESPONSES COMPLETE/);
-  assert.match(admin, /FINAL RESPONSE/);
+  assert.match(admin, /FINAL QUESTION/);
   assert.match(admin, /player\.finalReflection\?\.accepted/);
 });
 

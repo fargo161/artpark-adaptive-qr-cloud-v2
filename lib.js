@@ -44,6 +44,17 @@ export function publicVideoAnswers(rows) {
   return completed;
 }
 
+export function stationMissionState(visits, videoAnswers, station) {
+  const visited = (visits || []).some(visit => visit.station === station);
+  const response = videoAnswers?.[station] || null;
+  return {
+    visited,
+    responseComplete: Boolean(response),
+    selectedChoice: response?.selectedChoice || '',
+    state: response ? 'complete' : visited ? 'response_required' : 'not_visited'
+  };
+}
+
 export function safeConfigForPlayer(config) {
   return {
     eventName: config.eventName,
