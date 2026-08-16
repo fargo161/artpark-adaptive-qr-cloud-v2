@@ -271,3 +271,16 @@ test('station success copy reports exact remaining identification count and send
   assert.match(html, /identificationSuccessMessage\(player\)/);
   assert.match(html, /ALL FOUR SIGNALS IDENTIFIED \/\/ RETURN TO START\/END/);
 });
+
+
+test('unauthorized transmission renders GIFs inline and autoplays looping video media immediately', async () => {
+  const station = await read('../public/station.html');
+  assert.match(station, /gif\\|png\\|jpe\\?g\\|webp/);
+  const gateStart = station.indexOf('function showGate()');
+  const gateEnd = station.indexOf('function identificationSuccessMessage', gateStart);
+  const gate = station.slice(gateStart, gateEnd);
+  assert.match(gate, /lockedMedia/);
+  assert.match(gate, /autoplay:true/);
+  assert.match(gate, /muted:true/);
+  assert.match(gate, /loop:true/);
+});
