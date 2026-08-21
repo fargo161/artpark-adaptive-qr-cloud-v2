@@ -58,7 +58,9 @@ Mission Control exposes exactly two video roles for each Functional station: loo
 
 `/s/start-end` derives START versus END from the existing four-visit completion record. Authorization there may activate a code but never inserts a functional visit or consumes Stage 1. Mission Control adds two persisted video fields, `startEnd.startVideoUrl` and `startEnd.endVideoUrl`, using migration-safe defaults.
 
-The authenticated QR Code Generator produces Start/End plus the four functional station QRs as 1200px PNG and SVG. URLs derive from `PUBLIC_BASE_URL`; verify the displayed hostname before mass printing. No additional environment variable or database state is required.
+The authenticated QR Code Generator produces Start/End, the four functional station QRs, and Quick Start / Auto-Issue as 1200px PNG and SVG. URLs derive from `PUBLIC_BASE_URL`; verify the displayed hostname before mass printing. No additional environment variable or database state is required.
+
+`GET /quick-start` is a live allocation route. It reuses an existing valid active player cookie or transactionally selects an unallocated production `UNUSED` row with `FOR UPDATE SKIP LOCKED`, activates its existing player identity, sets the normal player cookie, and redirects to `/s/start-end`. It excludes test codes, creates no visit, and returns a controlled 503 when inventory is exhausted. Cache, robot, referrer, and prefetch protections reduce accidental allocation, but operators should still treat opening the URL as consuming a code for a fresh browser.
 
 ## Concurrency semantics
 

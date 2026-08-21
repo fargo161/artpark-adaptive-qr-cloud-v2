@@ -149,7 +149,9 @@ Mission Control preserves those 17 fields and adds `START/END // START VIDEO` an
 
 ## Mission Control QR Code Generator
 
-The authenticated `/admin` dashboard generates five QRs: Start/End, Access, Attention, Escape, and Sensory. Every displayed URL, QR preview, PNG, and SVG derives from the same `PUBLIC_BASE_URL` value (falling back to the current request host only when it is not configured). The generator does not change player or database state. Always verify the displayed hostname is the intended permanent print destination before mass printing.
+The authenticated `/admin` dashboard generates six QRs: Start/End, Access, Attention, Escape, Sensory, and Quick Start / Auto-Issue. Every displayed URL, QR preview, PNG, and SVG derives from the same `PUBLIC_BASE_URL` value (falling back to the current request host only when it is not configured). Viewing or downloading from the generator does not change player or database state. Always verify the displayed hostname is the intended permanent print destination before mass printing.
+
+The Quick Start QR encodes only `/quick-start`; it never contains a player code. Deliberately opening it from a fresh browser atomically claims one unallocated production `UNUSED` code, activates the existing one-code/one-player identity, sets the normal persistent player cookie, and redirects to `/s/start-end`. A browser that already has a valid active player is redirected without consuming another code. Quick Start creates no Functional visit, so the first Functional scan remains discovery Stage 1. Treat this as a live operational QR: automated preview/prefetch requests are rejected, and every deliberate new-browser open may consume one code.
 
 For field reliability, short 720p H.264 MP4 files on a CDN/object-storage service are a strong eventual choice. The current broadcast/VHS aesthetic does not require 4K delivery.
 

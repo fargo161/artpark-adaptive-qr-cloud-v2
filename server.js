@@ -28,6 +28,12 @@ import {
   safeConfigForPlayer
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
+import {
+  QUICK_START_ROUTE,
+  QUICK_START_UNAVAILABLE,
+  claimQuickStartCandidate,
+  isPrefetchRequest
+} from './quick-start.js';
 import { normalizeAnswer, answerMatches } from './answer-matching.js';
 import {
   FINAL_PHRASE,
@@ -245,6 +251,52 @@ async function authorizeCode(rawCode, res) {
   if (result.ok) setPlayerCookie(res, code);
   return result;
 }
+
+function setQuickStartHeaders(res) {
+  res.set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, private',
+    Pragma: 'no-cache',
+    Expires: '0',
+    'Surrogate-Control': 'no-store',
+    'X-Robots-Tag': 'noindex, nofollow, noarchive',
+    'Referrer-Policy': 'no-referrer',
+    Vary: 'Cookie'
+  });
+}
+
+app.get(QUICK_START_ROUTE, async (req, res, next) => {
+  setQuickStartHeaders(res);
+  if (isPrefetchRequest(req.headers)) {
+    return res.status(425).type('text/plain').send('QUICK START REQUIRES A DIRECT OPEN');
+  }
+
+  try {
+    const existingCode = normalizeAccessCode(parseCookies(req)[COOKIE_NAME]);
+    if (existingCode) {
+      const existingPlayer = await playerRecord(existingCode);
+      if (existingPlayer?.active) return res.redirect(302, START_END_ROUTE);
+      clearPlayerCookie(res);
+    }
+
+    const code = await withTransaction(async client => {
+      const claimedCode = await claimQuickStartCandidate(client);
+      if (!claimedCode) return null;
+      await ensurePlayerIdentity(client, claimedCode);
+      await audit(client, 'QUICK_START_ACTIVATED', claimedCode, 'QUICK_START', {
+        sourceRoute: QUICK_START_ROUTE
+      });
+      return claimedCode;
+    });
+
+    if (!code) {
+      return res.status(503).type('text/plain').send(QUICK_START_UNAVAILABLE);
+    }
+    setPlayerCookie(res, code);
+    return res.redirect(302, START_END_ROUTE);
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get('/healthz', async (_req, res) => {
   try {

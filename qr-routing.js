@@ -3,7 +3,13 @@ export const QR_DESTINATIONS = [
   { slug: 'access', name: 'ACCESS', route: '/s/access' },
   { slug: 'attention', name: 'ATTENTION', route: '/s/attention' },
   { slug: 'escape', name: 'ESCAPE', route: '/s/escape' },
-  { slug: 'sensory', name: 'SENSORY', route: '/s/sensory' }
+  { slug: 'sensory', name: 'SENSORY', route: '/s/sensory' },
+  {
+    slug: 'quick-start',
+    name: 'QUICK START / AUTO-ISSUE',
+    route: '/quick-start',
+    warning: 'LIVE QR — EACH NEW BROWSER SCAN CLAIMS ONE UNUSED PLAYER CODE.'
+  }
 ];
 
 export function normalizeBaseUrl(value) {
