@@ -7,6 +7,9 @@ import {
   QUICK_START_ROUTE,
   QUICK_START_UNAVAILABLE,
   claimQuickStartCandidate,
+  claimQuickStartCode,
+  normalizeQuickStartToken,
+  hashQuickStartToken,
   isPrefetchRequest
 } from '../quick-start.js';
 import { QR_DESTINATIONS, qrDestinations } from '../qr-routing.js';
@@ -40,6 +43,32 @@ function fakeClient(shared) {
   };
 }
 
+function idempotentClient(inventory, claims) {
+  return {
+    async query(sql, values = []) {
+      const statement = String(sql);
+      if (statement.startsWith('INSERT INTO quick_start_claims')) {
+        if (!claims.has(values[0])) claims.set(values[0], { code: null, locked: false, waiters: [] });
+        return { rows: [] };
+      }
+      if (statement.startsWith('SELECT code FROM quick_start_claims')) {
+        const claim = claims.get(values[0]);
+        if (claim.locked) await new Promise(resolve => claim.waiters.push(resolve));
+        else claim.locked = true;
+        return { rows: [{ code: claim.code }] };
+      }
+      if (statement.startsWith('UPDATE quick_start_claims')) {
+        const claim = claims.get(values[0]);
+        claim.code = values[1];
+        claim.locked = false;
+        claim.waiters.splice(0).forEach(resolve => resolve());
+        return { rows: [] };
+      }
+      return fakeClient(inventory).query(sql, values);
+    }
+  };
+}
+
 test('Quick Start candidate SQL atomically locks one unallocated UNUSED non-test code', () => {
   assert.equal(QUICK_START_ROUTE, '/quick-start');
   assert.match(QUICK_START_CANDIDATE_SQL, /status='unused'/);
@@ -69,6 +98,33 @@ test('candidate claim returns null without touching state when inventory is exha
   assert.equal(await claimQuickStartCandidate(fakeClient(rows)), null);
 });
 
+test('near-simultaneous claims with one fresh-browser token consume exactly one code', async () => {
+  const inventory = [
+    { code: 'AAA111', status: 'unused', allocated: false, test: false, locked: false },
+    { code: 'BBB222', status: 'unused', allocated: false, test: false, locked: false }
+  ];
+  const claims = new Map();
+  const tokenHash = hashQuickStartToken('fresh_browser_token_123456789');
+  const [first, second] = await Promise.all([
+    claimQuickStartCode(idempotentClient(inventory, claims), tokenHash),
+    claimQuickStartCode(idempotentClient(inventory, claims), tokenHash)
+  ]);
+
+  assert.equal(first.code, 'AAA111');
+  assert.equal(second.code, 'AAA111');
+  assert.equal(inventory.filter(row => row.allocated).length, 1);
+  assert.equal(inventory.find(row => row.code === 'BBB222').allocated, false);
+  assert.deepEqual(new Set([first.reused, second.reused]), new Set([false, true]));
+});
+
+test('Quick Start browser tokens are validated and stored as deterministic hashes', () => {
+  const token = 'fresh_browser_token_123456789';
+  assert.equal(normalizeQuickStartToken(token), token);
+  assert.equal(normalizeQuickStartToken('short'), '');
+  assert.equal(hashQuickStartToken(token).length, 64);
+  assert.equal(hashQuickStartToken(token), hashQuickStartToken(token));
+});
+
 test('prefetch and preview requests are rejected before allocation', () => {
   assert.equal(isPrefetchRequest({ purpose: 'prefetch' }), true);
   assert.equal(isPrefetchRequest({ 'sec-purpose': 'prefetch;prerender' }), true);
@@ -76,22 +132,22 @@ test('prefetch and preview requests are rejected before allocation', () => {
   assert.equal(isPrefetchRequest({}), false);
 });
 
-test('fresh Quick Start uses one transaction, existing identity activation, cookie, audit, and redirect', async () => {
+test('fresh Quick Start uses an idempotent transaction, existing identity activation, cookie, and redirect', async () => {
   const server = await read('../server.js');
   const route = quickStartSlice(server);
   assert.match(route, /withTransaction\(async client/);
-  assert.match(route, /claimQuickStartCandidate\(client\)/);
-  assert.match(route, /ensurePlayerIdentity\(client, claimedCode\)/);
+  assert.match(route, /claimQuickStartCode\(client, tokenHash\)/);
+  assert.match(route, /ensurePlayerIdentity\(client, result\.code\)/);
   assert.match(route, /QUICK_START_ACTIVATED/);
-  assert.match(route, /setPlayerCookie\(res, code\)/);
-  assert.match(route, /redirect\(302, START_END_ROUTE\)/);
+  assert.match(route, /setPlayerCookie\(res, claim\.code\)/);
+  assert.match(route, /redirect: START_END_ROUTE/);
 });
 
 test('active cookie bypasses allocation while stale cookie is cleared and replaced safely', async () => {
   const server = await read('../server.js');
   const route = quickStartSlice(server);
   const reuse = route.indexOf('existingPlayer?.active');
-  const allocation = route.indexOf('claimQuickStartCandidate(client)');
+  const allocation = route.indexOf('claimQuickStartCode(client, tokenHash)');
   assert.ok(reuse > 0 && allocation > reuse);
   assert.match(route, /existingPlayer\?\.active.*redirect\(302, START_END_ROUTE\)/s);
   assert.match(route, /clearPlayerCookie\(res\)/);
@@ -120,6 +176,24 @@ test('Quick Start creates no functional visit and does not duplicate Start/End v
   const route = quickStartSlice(server);
   assert.doesNotMatch(route, /INSERT INTO visits|UPDATE visits|DELETE FROM visits/);
   assert.doesNotMatch(route, /startVideoUrl|framingState|videoUrl/);
+});
+
+test('browser bootstrap shares one token across tabs and POSTs it without a player code URL', async () => {
+  const html = await read('../public/quick-start.html');
+  assert.match(html, /navigator\.locks/);
+  assert.match(html, /localStorage/);
+  assert.match(html, /fetch\('\/api\/quick-start'/);
+  assert.match(html, /JSON\.stringify\(\{ token \}\)/);
+  assert.match(html, /window\.location\.replace\(data\.redirect\)/);
+  assert.doesNotMatch(html, /accessCode/);
+});
+
+test('schema persists idempotency claims and player resets release their mappings', async () => {
+  const [schema, server] = await Promise.all([read('../schema.sql'), read('../server.js')]);
+  assert.match(schema, /CREATE TABLE IF NOT EXISTS quick_start_claims/);
+  assert.match(schema, /token_hash TEXT PRIMARY KEY/);
+  assert.match(schema, /code TEXT REFERENCES access_codes\(code\) ON DELETE CASCADE/);
+  assert.equal(server.match(/DELETE FROM quick_start_claims WHERE code=\$1/g)?.length, 2);
 });
 
 test('QR destination list adds Quick Start after preserving all five existing values', () => {

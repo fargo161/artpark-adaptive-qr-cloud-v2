@@ -31,7 +31,9 @@ import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
 import {
   QUICK_START_ROUTE,
   QUICK_START_UNAVAILABLE,
-  claimQuickStartCandidate,
+  claimQuickStartCode,
+  normalizeQuickStartToken,
+  hashQuickStartToken,
   isPrefetchRequest
 } from './quick-start.js';
 import { normalizeAnswer, answerMatches } from './answer-matching.js';
@@ -278,21 +280,40 @@ app.get(QUICK_START_ROUTE, async (req, res, next) => {
       clearPlayerCookie(res);
     }
 
-    const code = await withTransaction(async client => {
-      const claimedCode = await claimQuickStartCandidate(client);
-      if (!claimedCode) return null;
-      await ensurePlayerIdentity(client, claimedCode);
-      await audit(client, 'QUICK_START_ACTIVATED', claimedCode, 'QUICK_START', {
-        sourceRoute: QUICK_START_ROUTE
-      });
-      return claimedCode;
+    return res.sendFile(path.join(__dirname, 'public', 'quick-start.html'));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/quick-start', async (req, res, next) => {
+  setQuickStartHeaders(res);
+  try {
+    const existingCode = normalizeAccessCode(parseCookies(req)[COOKIE_NAME]);
+    if (existingCode) {
+      const existingPlayer = await playerRecord(existingCode);
+      if (existingPlayer?.active) return res.json({ redirect: START_END_ROUTE, reused: true });
+      clearPlayerCookie(res);
+    }
+
+    const token = normalizeQuickStartToken(req.body?.token);
+    if (!token) return res.status(400).json({ error: 'QUICK_START_TOKEN_REQUIRED' });
+    const tokenHash = hashQuickStartToken(token);
+    const claim = await withTransaction(async client => {
+      const result = await claimQuickStartCode(client, tokenHash);
+      if (!result) return null;
+      await ensurePlayerIdentity(client, result.code);
+      if (!result.reused) {
+        await audit(client, 'QUICK_START_ACTIVATED', result.code, 'QUICK_START', {
+          sourceRoute: QUICK_START_ROUTE
+        });
+      }
+      return result;
     });
 
-    if (!code) {
-      return res.status(503).type('text/plain').send(QUICK_START_UNAVAILABLE);
-    }
-    setPlayerCookie(res, code);
-    return res.redirect(302, START_END_ROUTE);
+    if (!claim) return res.status(503).json({ error: QUICK_START_UNAVAILABLE });
+    setPlayerCookie(res, claim.code);
+    return res.json({ redirect: START_END_ROUTE, reused: claim.reused });
   } catch (error) {
     next(error);
   }
@@ -695,6 +716,7 @@ app.post('/api/admin/player/:accessCode/reset', requireAdmin, async (req, res) =
     await client.query('DELETE FROM visits WHERE code=$1', [code]);
     await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
     await client.query('DELETE FROM final_reflections WHERE code=$1', [code]);
+    await client.query('DELETE FROM quick_start_claims WHERE code=$1', [code]);
     await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
     await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     await audit(client, 'player_reset', code, req.missionOperator);
@@ -721,6 +743,7 @@ app.put('/api/admin/player/:accessCode/visits', requireAdmin, async (req, res) =
     } else {
       await client.query('DELETE FROM video_answers WHERE code=$1', [code]);
       await client.query('DELETE FROM final_reflections WHERE code=$1', [code]);
+      await client.query('DELETE FROM quick_start_claims WHERE code=$1', [code]);
       await client.query('UPDATE players SET updated_at=NOW() WHERE code=$1', [code]);
       await client.query("UPDATE access_codes SET status='unused',allocated_at=NULL,activated_at=NULL WHERE code=$1", [code]);
     }

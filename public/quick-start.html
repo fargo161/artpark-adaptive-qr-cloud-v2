@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>ARTPARK Quick Start</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    main{max-width:36rem;margin:12vh auto;padding:2rem;text-align:center}
+    .signal{letter-spacing:.12em;text-transform:uppercase}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>QUICK START</h1>
+    <p id="status" class="signal" role="status">ESTABLISHING PLAYER SIGNAL…</p>
+  </main>
+  <script>
+    (() => {
+      const storageKey = 'artpark_quick_start_idempotency';
+      const status = document.getElementById('status');
+      const makeToken = () => crypto.randomUUID?.() || `${Date.now()}_${crypto.getRandomValues(new Uint32Array(4)).join('_')}`;
+      const storedToken = () => {
+        try { return localStorage.getItem(storageKey) || ''; } catch { return ''; }
+      };
+      const createToken = () => {
+        const existing = storedToken();
+        if (existing) return existing;
+        const token = makeToken();
+        try { localStorage.setItem(storageKey, token); } catch { /* request remains safe within this page */ }
+        return storedToken() || token;
+      };
+      const browserToken = async () => {
+        if (navigator.locks?.request) {
+          return navigator.locks.request(storageKey, createToken);
+        }
+        const token = createToken();
+        await new Promise(resolve => setTimeout(resolve, 75));
+        return storedToken() || token;
+      };
+
+      browserToken().then(token => fetch('/api/quick-start', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token })
+      })).then(async response => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'QUICK START TEMPORARILY UNAVAILABLE // REPORT TO CONCIERGE');
+        window.location.replace(data.redirect);
+      }).catch(error => {
+        status.textContent = error.message;
+      });
+    })();
+  </script>
+</body>
+</html>
