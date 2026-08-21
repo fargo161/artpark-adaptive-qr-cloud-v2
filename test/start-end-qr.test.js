@@ -8,11 +8,11 @@ import { START_END_ROUTE } from '../lib.js';
 test('Start/End uses one stable non-functional station route', () => {
   assert.equal(START_END_ROUTE, '/s/start-end');
   assert.deepEqual(QR_DESTINATIONS.map(item => item.route), [
-    '/s/start-end','/s/access','/s/attention','/s/escape','/s/sensory'
+    '/s/start-end','/s/access','/s/attention','/s/escape','/s/sensory','/quick-start'
   ]);
 });
 
-test('all five QR URLs derive from one authoritative normalized base URL', () => {
+test('all six QR URLs derive from one authoritative normalized base URL', () => {
   assert.equal(normalizeBaseUrl('https://signal.example/'), 'https://signal.example');
   const destinations = qrDestinations('https://signal.example/');
   assert.deepEqual(destinations.map(item => item.url), [
@@ -20,7 +20,8 @@ test('all five QR URLs derive from one authoritative normalized base URL', () =>
     'https://signal.example/s/access',
     'https://signal.example/s/attention',
     'https://signal.example/s/escape',
-    'https://signal.example/s/sensory'
+    'https://signal.example/s/sensory',
+    'https://signal.example/quick-start'
   ]);
   assert.throws(() => qrDestinations('not-a-url'));
 });

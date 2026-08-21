@@ -93,6 +93,15 @@ CREATE TABLE IF NOT EXISTS mission_control_sessions (
 
 CREATE INDEX IF NOT EXISTS mission_control_sessions_expires_idx ON mission_control_sessions(expires_at);
 
+CREATE TABLE IF NOT EXISTS quick_start_claims (
+  token_hash TEXT PRIMARY KEY,
+  code TEXT REFERENCES access_codes(code) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS quick_start_claims_code_idx ON quick_start_claims(code);
+
 CREATE TABLE IF NOT EXISTS mission_control_audit (
   id BIGSERIAL PRIMARY KEY,
   action TEXT NOT NULL,
