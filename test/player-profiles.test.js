@@ -136,8 +136,11 @@ test('profile data remains operator-only and cache behavior is unchanged', async
   const [server, station] = await Promise.all([read('../server.js'), read('../public/station.html')]);
   const publicStart = server.indexOf("app.get('/api/me'");
   const publicEnd = server.indexOf("app.get('/api/admin/summary'", publicStart);
-  assert.doesNotMatch(server.slice(publicStart, publicEnd), /player_profiles|display_name|contact_info|notes/);
-  assert.doesNotMatch(station, /contactInfo|profileNotes|displayName/);
+  const meEnd = server.indexOf("app.post('/api/access'", publicStart);
+  assert.doesNotMatch(server.slice(publicStart, meEnd), /player_profiles|display_name|contact_info|notes/);
+  assert.doesNotMatch(server.slice(publicStart, publicEnd), /contact_info|notes|player_profile_versions/);
+  assert.doesNotMatch(station, /contactInfo|contact_info|profileNotes|player_profile_versions/);
+  assert.match(station, /fetch\('\/api\/final-name'/);
   assert.match(server, /express\.static\(path\.join\(__dirname, 'public'\), \{ maxAge: 0, etag: true, lastModified: true \}\)/);
 });
 

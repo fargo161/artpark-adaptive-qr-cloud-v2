@@ -31,10 +31,12 @@ import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
 import {
   normalizeProfileInput,
   normalizeProfileSearch,
+  normalizeFinalPlayerName,
   publicProfile,
   publicProfileVersion,
   lockProfileAccessCode,
   savePlayerProfileWithHistory,
+  saveFinalPlayerName,
   deletePlayerProfile,
   restorePlayerProfileVersion
 } from './player-profiles.js';
@@ -583,6 +585,38 @@ app.post('/api/final-reflection', async (req, res) => {
     return res.status(result.status).json({ error: result.error });
   }
   res.json(result);
+});
+
+app.post('/api/final-name', async (req, res) => {
+  const code = normalizeAccessCode(parseCookies(req)[COOKIE_NAME]);
+  if (!code) return res.status(401).json({ error: 'ACCESS_REQUIRED' });
+  const validated = normalizeFinalPlayerName(req.body?.name);
+  if (validated.error) return res.status(400).json({ error: validated.error });
+
+  const result = await withTransaction(async client => {
+    const access = await lockAccessCode(client, code);
+    if (!access || access.status !== 'active') return { error: 'ACCESS_REQUIRED', status: 401 };
+    const completion = await client.query('SELECT code FROM final_reflections WHERE code=$1', [code]);
+    if (!completion.rows[0]) return { error: 'FINAL_COMPLETION_REQUIRED', status: 409 };
+    const saved = await saveFinalPlayerName(client, code, validated.name, 'PLAYER');
+    await audit(client, 'PLAYER_FINAL_NAME_SAVED', code, 'PLAYER', {
+      displayNamePresent: true,
+      previousNamePresent: saved.previousNamePresent,
+      unchanged: saved.unchanged
+    });
+    return saved;
+  });
+
+  if (result.error) {
+    if (result.status === 401) clearPlayerCookie(res);
+    return res.status(result.status).json({ error: result.error });
+  }
+  res.json({
+    ok: true,
+    accessCode: formatAccessCode(code),
+    displayName: result.profile.display_name,
+    unchanged: result.unchanged
+  });
 });
 
 app.post('/api/start-end', async (req, res) => {

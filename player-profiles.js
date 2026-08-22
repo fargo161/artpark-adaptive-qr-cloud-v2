@@ -14,6 +14,14 @@ export function normalizeProfileSearch(value) {
   return String(value || '').trim().slice(0, 80);
 }
 
+export function normalizeFinalPlayerName(value) {
+  if (typeof value !== 'string') return { error: 'NAME_REQUIRED' };
+  const name = value.trim();
+  if (!name) return { error: 'NAME_REQUIRED' };
+  if (name.length > PROFILE_LIMITS.displayName) return { error: 'NAME_TOO_LONG' };
+  return { name };
+}
+
 export function publicProfile(row) {
   return {
     displayName: row?.display_name || '',
@@ -69,6 +77,21 @@ export async function snapshotPlayerProfile(client, code, operator, reason) {
 export async function savePlayerProfileWithHistory(client, code, profile, operator) {
   await snapshotPlayerProfile(client, code, operator, 'UPDATE');
   return upsertPlayerProfile(client, code, profile);
+}
+
+export async function saveFinalPlayerName(client, code, name, operator = 'PLAYER') {
+  const current = await client.query('SELECT * FROM player_profiles WHERE code=$1 FOR UPDATE', [code]);
+  const profile = current.rows[0];
+  const previousNamePresent = Boolean(profile?.display_name);
+  if (profile?.display_name === name) {
+    return { profile, unchanged: true, previousNamePresent };
+  }
+  const saved = await savePlayerProfileWithHistory(client, code, {
+    displayName: name,
+    contactInfo: profile?.contact_info || '',
+    notes: profile?.notes || ''
+  }, operator);
+  return { profile: saved, unchanged: false, previousNamePresent };
 }
 
 export async function deletePlayerProfile(client, code, operator) {

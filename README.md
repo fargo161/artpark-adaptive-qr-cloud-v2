@@ -157,6 +157,8 @@ Mission Control includes an operator-only Drawing Pool. Eligibility comes only f
 
 Optional Player Profiles let authenticated operators attach a display name, contact information, and notes to an access code. Profiles never participate in player identity, routing, completion, or drawing eligibility; they survive progress resets and remain absent from public player APIs. Before an existing profile is updated, cleared, or replaced by a restore, Mission Control stores an immutable recovery version in the same transaction. Operators can review and restore the latest 100 versions, and can download the current live profiles as an authenticated private backup CSV. Profile history, live profiles, and prize history all survive gameplay resets. Drawing Pool CSV exports include display names but exclude contact information and notes.
 
+After final completion, the Start/End winner screen offers an optional name/nickname field. `POST /api/final-name` accepts that display name only from the completed player's existing HttpOnly-cookie identity, preserves operator contact information and notes, and uses the same profile-history protection. Name capture never determines completion or Drawing Pool eligibility.
+
 For field reliability, short 720p H.264 MP4 files on a CDN/object-storage service are a strong eventual choice. The current broadcast/VHS aesthetic does not require 4K delivery.
 
 ## First local test — easiest method
