@@ -32,9 +32,11 @@ import {
   normalizeProfileInput,
   normalizeProfileSearch,
   publicProfile,
-  upsertPlayerProfile,
+  publicProfileVersion,
   lockProfileAccessCode,
-  deletePlayerProfile
+  savePlayerProfileWithHistory,
+  deletePlayerProfile,
+  restorePlayerProfileVersion
 } from './player-profiles.js';
 import {
   DRAWING_POOL_ELIGIBLE_SQL,
@@ -830,6 +832,71 @@ app.get('/api/admin/player-profile-search', requireAdmin, async (req, res) => {
   })) });
 });
 
+app.get('/api/admin/player-profiles.csv', requireAdmin, async (req, res) => {
+  const result = await pool.query(
+    `SELECT pp.code,pp.display_name,pp.contact_info,pp.notes,a.is_test,pp.updated_at
+     FROM player_profiles pp
+     JOIN access_codes a ON a.code=pp.code
+     ORDER BY pp.code`
+  );
+  const lines = ['access_code,display_name,contact_info,notes,is_test,updated_at'];
+  for (const row of result.rows) {
+    lines.push([
+      csvCell(formatAccessCode(row.code)),
+      csvCell(row.display_name),
+      csvCell(row.contact_info),
+      csvCell(row.notes),
+      row.is_test ? 'true' : 'false',
+      csvCell(new Date(row.updated_at).toISOString())
+    ].join(','));
+  }
+  res.set({
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': 'attachment; filename="artpark-player-profiles-backup.csv"',
+    'Cache-Control': 'no-store'
+  });
+  res.send(`${lines.join('\r\n')}\r\n`);
+});
+
+app.get('/api/admin/player-profile/:code/history', requireAdmin, async (req, res) => {
+  const code = normalizeAccessCode(req.params.code);
+  const access = code && await pool.query('SELECT code FROM access_codes WHERE code=$1', [code]);
+  if (!access?.rows[0]) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
+  const result = await pool.query(
+    `SELECT * FROM player_profile_versions
+     WHERE code=$1
+     ORDER BY created_at DESC,id DESC
+     LIMIT 100`,
+    [code]
+  );
+  res.json({
+    accessCode: formatAccessCode(code),
+    history: result.rows.map(publicProfileVersion)
+  });
+});
+
+app.post('/api/admin/player-profile/:code/restore/:versionId', requireAdmin, async (req, res) => {
+  const code = normalizeAccessCode(req.params.code);
+  const versionId = /^\d+$/.test(req.params.versionId) ? Number(req.params.versionId) : 0;
+  if (!code || !Number.isSafeInteger(versionId) || versionId < 1) {
+    return res.status(400).json({ error: 'INVALID_PROFILE_VERSION' });
+  }
+  const result = await withTransaction(async client => {
+    if (!await lockProfileAccessCode(client, code)) return { error: 'PLAYER_NOT_FOUND' };
+    const restored = await restorePlayerProfileVersion(client, code, versionId, req.missionOperator);
+    if (!restored) return { error: 'PROFILE_VERSION_NOT_FOUND' };
+    await audit(client, 'PLAYER_PROFILE_RESTORED', code, req.missionOperator, {
+      versionId,
+      currentProfileExisted: restored.currentProfileExisted,
+      displayNamePresent: Boolean(restored.restored.display_name)
+    });
+    return restored;
+  });
+  if (result.error === 'PLAYER_NOT_FOUND') return res.status(404).json({ error: result.error });
+  if (result.error) return res.status(404).json({ error: result.error });
+  res.json({ accessCode: formatAccessCode(code), profile: publicProfile(result.restored) });
+});
+
 app.get('/api/admin/player-profile/:code', requireAdmin, async (req, res) => {
   const code = normalizeAccessCode(req.params.code);
   const access = code && await pool.query('SELECT code FROM access_codes WHERE code=$1', [code]);
@@ -844,7 +911,7 @@ app.put('/api/admin/player-profile/:code', requireAdmin, async (req, res) => {
   if (!code || !profile) return res.status(400).json({ error: 'INVALID_PLAYER_PROFILE' });
   const saved = await withTransaction(async client => {
     if (!await lockProfileAccessCode(client, code)) return null;
-    const result = await upsertPlayerProfile(client, code, profile);
+    const result = await savePlayerProfileWithHistory(client, code, profile, req.missionOperator);
     await audit(client, 'PLAYER_PROFILE_UPDATED', code, req.missionOperator, { displayName: profile.displayName });
     return result;
   });
@@ -856,12 +923,12 @@ app.delete('/api/admin/player-profile/:code', requireAdmin, async (req, res) => 
   const code = normalizeAccessCode(req.params.code);
   const cleared = await withTransaction(async client => {
     if (!code || !await lockProfileAccessCode(client, code)) return false;
-    await deletePlayerProfile(client, code);
+    const version = await deletePlayerProfile(client, code, req.missionOperator);
     await audit(client, 'PLAYER_PROFILE_CLEARED', code, req.missionOperator);
-    return true;
+    return { versionSaved: Boolean(version) };
   });
   if (!cleared) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
-  res.json({ ok: true, accessCode: formatAccessCode(code) });
+  res.json({ ok: true, accessCode: formatAccessCode(code), versionSaved: cleared.versionSaved });
 });
 
 app.post('/api/admin/codes/issue', requireAdmin, async (req, res) => {

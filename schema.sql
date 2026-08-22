@@ -124,6 +124,20 @@ CREATE TABLE IF NOT EXISTS player_profiles (
 
 CREATE INDEX IF NOT EXISTS player_profiles_display_name_idx ON player_profiles(LOWER(display_name));
 
+CREATE TABLE IF NOT EXISTS player_profile_versions (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT NOT NULL REFERENCES access_codes(code) ON DELETE CASCADE,
+  display_name TEXT NOT NULL DEFAULT '',
+  contact_info TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  operator TEXT NOT NULL DEFAULT 'TEAM',
+  reason TEXT NOT NULL CHECK (reason IN ('UPDATE','CLEAR','RESTORE')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS player_profile_versions_code_created_idx
+  ON player_profile_versions(code,created_at DESC,id DESC);
+
 CREATE TABLE IF NOT EXISTS mission_control_audit (
   id BIGSERIAL PRIMARY KEY,
   action TEXT NOT NULL,

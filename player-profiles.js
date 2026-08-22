@@ -24,6 +24,18 @@ export function publicProfile(row) {
   };
 }
 
+export function publicProfileVersion(row) {
+  return {
+    id: Number(row.id),
+    displayName: row.display_name || '',
+    contactInfo: row.contact_info || '',
+    notes: row.notes || '',
+    operator: row.operator || 'TEAM',
+    reason: row.reason,
+    createdAt: row.created_at
+  };
+}
+
 export async function upsertPlayerProfile(client, code, profile) {
   const result = await client.query(
     `INSERT INTO player_profiles(code,display_name,contact_info,notes)
@@ -41,6 +53,42 @@ export async function lockProfileAccessCode(client, code) {
   return Boolean(result.rows[0]);
 }
 
-export async function deletePlayerProfile(client, code) {
+export async function snapshotPlayerProfile(client, code, operator, reason) {
+  const current = await client.query('SELECT * FROM player_profiles WHERE code=$1 FOR UPDATE', [code]);
+  const profile = current.rows[0];
+  if (!profile) return null;
+  const result = await client.query(
+    `INSERT INTO player_profile_versions(code,display_name,contact_info,notes,operator,reason)
+     VALUES($1,$2,$3,$4,$5,$6)
+     RETURNING *`,
+    [code, profile.display_name, profile.contact_info, profile.notes, operator, reason]
+  );
+  return result.rows[0];
+}
+
+export async function savePlayerProfileWithHistory(client, code, profile, operator) {
+  await snapshotPlayerProfile(client, code, operator, 'UPDATE');
+  return upsertPlayerProfile(client, code, profile);
+}
+
+export async function deletePlayerProfile(client, code, operator) {
+  const version = await snapshotPlayerProfile(client, code, operator, 'CLEAR');
   await client.query('DELETE FROM player_profiles WHERE code=$1', [code]);
+  return version;
+}
+
+export async function restorePlayerProfileVersion(client, code, versionId, operator) {
+  const stored = await client.query(
+    'SELECT * FROM player_profile_versions WHERE id=$1 AND code=$2',
+    [versionId, code]
+  );
+  const version = stored.rows[0];
+  if (!version) return null;
+  const replaced = await snapshotPlayerProfile(client, code, operator, 'RESTORE');
+  const restored = await upsertPlayerProfile(client, code, {
+    displayName: version.display_name,
+    contactInfo: version.contact_info,
+    notes: version.notes
+  });
+  return { restored, currentProfileExisted: Boolean(replaced) };
 }
