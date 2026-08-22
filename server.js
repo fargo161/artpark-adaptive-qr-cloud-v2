@@ -29,6 +29,13 @@ import {
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
 import {
+  DRAWING_POOL_ELIGIBLE_SQL,
+  DRAWING_POOL_HISTORY_SQL,
+  DRAWING_POOL_EXPORT_SQL,
+  drawPrizeWinner,
+  csvCell
+} from './drawing-pool.js';
+import {
   QUICK_START_ROUTE,
   QUICK_START_UNAVAILABLE,
   claimQuickStartCode,
@@ -719,6 +726,72 @@ app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
     hasMore: offset + result.rows.length < total,
     sort
   });
+});
+
+app.get('/api/admin/drawing-pool', requireAdmin, async (req, res) => {
+  const allowRepeat = req.query.allowRepeat === '1';
+  const [finalCount, eligible, winnerCount, history] = await Promise.all([
+    pool.query('SELECT COUNT(*)::int AS count FROM final_reflections fr JOIN access_codes a ON a.code=fr.code WHERE a.is_test=FALSE'),
+    pool.query(DRAWING_POOL_ELIGIBLE_SQL, [allowRepeat]),
+    pool.query('SELECT COUNT(*)::int AS count FROM prize_draws'),
+    pool.query(DRAWING_POOL_HISTORY_SQL)
+  ]);
+  res.json({
+    finalCompletions: Number(finalCount.rows[0].count),
+    available: eligible.rows.length,
+    winnersDrawn: Number(winnerCount.rows[0].count),
+    eligible: eligible.rows.map(row => ({
+      accessCode: formatAccessCode(row.code),
+      completedAt: row.completed_at
+    })),
+    history: history.rows.map(row => ({
+      id: Number(row.id),
+      accessCode: formatAccessCode(row.code),
+      operator: row.operator,
+      allowRepeat: row.allow_repeat,
+      drawnAt: row.drawn_at
+    }))
+  });
+});
+
+app.post('/api/admin/drawing-pool/draw', requireAdmin, async (req, res) => {
+  const allowRepeat = req.body?.allowRepeat === true;
+  const winner = await withTransaction(async client => {
+    const row = await drawPrizeWinner(client, allowRepeat, req.missionOperator);
+    if (!row) return null;
+    await audit(client, 'PRIZE_WINNER_DRAWN', row.code, req.missionOperator, {
+      drawId: Number(row.id),
+      allowRepeat
+    });
+    return row;
+  });
+  if (!winner) return res.status(409).json({ error: 'DRAWING_POOL_EMPTY' });
+  res.status(201).json({ winner: {
+    id: Number(winner.id),
+    accessCode: formatAccessCode(winner.code),
+    operator: winner.operator,
+    allowRepeat: winner.allow_repeat,
+    drawnAt: winner.drawn_at
+  }});
+});
+
+app.get('/api/admin/drawing-pool.csv', requireAdmin, async (req, res) => {
+  const allowRepeat = req.query.allowRepeat === '1';
+  const result = await pool.query(DRAWING_POOL_EXPORT_SQL, [allowRepeat]);
+  const lines = ['access_code,final_completed_at,previous_winner'];
+  for (const row of result.rows) {
+    lines.push([
+      csvCell(formatAccessCode(row.code)),
+      csvCell(new Date(row.completed_at).toISOString()),
+      row.previous_winner ? 'true' : 'false'
+    ].join(','));
+  }
+  res.set({
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': 'attachment; filename="artpark-drawing-pool.csv"',
+    'Cache-Control': 'no-store'
+  });
+  res.send(`${lines.join('\r\n')}\r\n`);
 });
 
 app.post('/api/admin/codes/issue', requireAdmin, async (req, res) => {

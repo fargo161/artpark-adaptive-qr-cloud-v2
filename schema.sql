@@ -102,6 +102,17 @@ CREATE TABLE IF NOT EXISTS quick_start_claims (
 
 CREATE INDEX IF NOT EXISTS quick_start_claims_code_idx ON quick_start_claims(code);
 
+CREATE TABLE IF NOT EXISTS prize_draws (
+  id BIGSERIAL PRIMARY KEY,
+  code TEXT NOT NULL REFERENCES access_codes(code),
+  operator TEXT NOT NULL DEFAULT 'TEAM',
+  allow_repeat BOOLEAN NOT NULL DEFAULT FALSE,
+  drawn_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS prize_draws_drawn_at_idx ON prize_draws(drawn_at DESC);
+CREATE INDEX IF NOT EXISTS prize_draws_code_idx ON prize_draws(code);
+
 CREATE TABLE IF NOT EXISTS mission_control_audit (
   id BIGSERIAL PRIMARY KEY,
   action TEXT NOT NULL,

@@ -153,6 +153,8 @@ The authenticated `/admin` dashboard generates six QRs: Start/End, Access, Atten
 
 The Quick Start QR encodes only `/quick-start`; it never contains a player code. Deliberately opening it loads a zero-typing browser bridge, which shares an idempotency token across same-browser tabs and atomically claims one unallocated production `UNUSED` code. Matching near-simultaneous requests serialize through `quick_start_claims` and reuse that code. The server then activates the existing one-code/one-player identity, sets the normal persistent player cookie, and redirects to `/s/start-end`. A browser that already has a valid active player is redirected without consuming another code. Quick Start creates no Functional visit, so the first Functional scan remains discovery Stage 1. Automated preview/prefetch requests are rejected.
 
+Mission Control includes an operator-only Drawing Pool. Eligibility comes only from a persisted final reflection on a non-test code. Winner selection is server-side and auditable; no-repeat draws serialize transactionally, while the explicit repeat toggle permits prior winners. Prize history survives player resets, and CSV exports contain only code and completion metadata.
+
 For field reliability, short 720p H.264 MP4 files on a CDN/object-storage service are a strong eventual choice. The current broadcast/VHS aesthetic does not require 4K delivery.
 
 ## First local test — easiest method
