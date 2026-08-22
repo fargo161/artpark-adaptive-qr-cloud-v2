@@ -113,6 +113,17 @@ CREATE TABLE IF NOT EXISTS prize_draws (
 CREATE INDEX IF NOT EXISTS prize_draws_drawn_at_idx ON prize_draws(drawn_at DESC);
 CREATE INDEX IF NOT EXISTS prize_draws_code_idx ON prize_draws(code);
 
+CREATE TABLE IF NOT EXISTS player_profiles (
+  code TEXT PRIMARY KEY REFERENCES access_codes(code) ON DELETE CASCADE,
+  display_name TEXT NOT NULL DEFAULT '',
+  contact_info TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS player_profiles_display_name_idx ON player_profiles(LOWER(display_name));
+
 CREATE TABLE IF NOT EXISTS mission_control_audit (
   id BIGSERIAL PRIMARY KEY,
   action TEXT NOT NULL,

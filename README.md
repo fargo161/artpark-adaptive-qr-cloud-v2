@@ -155,6 +155,8 @@ The Quick Start QR encodes only `/quick-start`; it never contains a player code.
 
 Mission Control includes an operator-only Drawing Pool. Eligibility comes only from a persisted final reflection on a non-test code. Winner selection is server-side and auditable; no-repeat draws serialize transactionally, while the explicit repeat toggle permits prior winners. Prize history survives player resets, and CSV exports contain only code and completion metadata.
 
+Optional Player Profiles let authenticated operators attach a display name, contact information, and notes to an access code. Profiles never participate in player identity, routing, completion, or drawing eligibility; they survive progress resets and remain absent from public player APIs. Drawing Pool CSV exports include display names but exclude contact information and notes.
+
 For field reliability, short 720p H.264 MP4 files on a CDN/object-storage service are a strong eventual choice. The current broadcast/VHS aesthetic does not require 4K delivery.
 
 ## First local test — easiest method

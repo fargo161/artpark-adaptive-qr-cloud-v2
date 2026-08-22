@@ -1,23 +1,27 @@
 export const DRAWING_POOL_ELIGIBLE_SQL = `
-  SELECT fr.code,fr.completed_at
+  SELECT fr.code,fr.completed_at,COALESCE(pp.display_name,'') AS display_name
   FROM final_reflections fr
   JOIN access_codes a ON a.code=fr.code
+  LEFT JOIN player_profiles pp ON pp.code=fr.code
   WHERE a.is_test=FALSE
     AND ($1::boolean OR NOT EXISTS (SELECT 1 FROM prize_draws pd WHERE pd.code=fr.code))
   ORDER BY fr.completed_at DESC,fr.code ASC
 `;
 
 export const DRAWING_POOL_HISTORY_SQL = `
-  SELECT id,code,operator,allow_repeat,drawn_at
-  FROM prize_draws
-  ORDER BY drawn_at DESC,id DESC
+  SELECT pd.id,pd.code,pd.operator,pd.allow_repeat,pd.drawn_at,
+    COALESCE(pp.display_name,'') AS display_name
+  FROM prize_draws pd
+  LEFT JOIN player_profiles pp ON pp.code=pd.code
+  ORDER BY pd.drawn_at DESC,pd.id DESC
 `;
 
 export const DRAWING_POOL_EXPORT_SQL = `
-  SELECT fr.code,fr.completed_at,
+  SELECT fr.code,COALESCE(pp.display_name,'') AS display_name,fr.completed_at,
     EXISTS (SELECT 1 FROM prize_draws pd WHERE pd.code=fr.code) AS previous_winner
   FROM final_reflections fr
   JOIN access_codes a ON a.code=fr.code
+  LEFT JOIN player_profiles pp ON pp.code=fr.code
   WHERE a.is_test=FALSE
     AND ($1::boolean OR NOT EXISTS (SELECT 1 FROM prize_draws pd WHERE pd.code=fr.code))
   ORDER BY fr.completed_at DESC,fr.code ASC

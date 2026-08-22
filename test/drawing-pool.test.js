@@ -88,7 +88,7 @@ test('concurrent no-repeat draws serialize and cannot record the same winner', a
 
 test('history is newest first and repeat mode is persisted without a unique code constraint', async () => {
   const schema = await read('../schema.sql');
-  assert.match(DRAWING_POOL_HISTORY_SQL, /ORDER BY drawn_at DESC,id DESC/);
+  assert.match(DRAWING_POOL_HISTORY_SQL, /ORDER BY pd\.drawn_at DESC,pd\.id DESC/);
   assert.match(schema, /CREATE TABLE IF NOT EXISTS prize_draws/);
   assert.match(schema, /allow_repeat BOOLEAN NOT NULL DEFAULT FALSE/);
   assert.doesNotMatch(schema, /UNIQUE\s*\(code\)/);

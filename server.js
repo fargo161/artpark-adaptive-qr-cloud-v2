@@ -29,6 +29,14 @@ import {
 } from './lib.js';
 import { normalizeBaseUrl, qrDestinations } from './qr-routing.js';
 import {
+  normalizeProfileInput,
+  normalizeProfileSearch,
+  publicProfile,
+  upsertPlayerProfile,
+  lockProfileAccessCode,
+  deletePlayerProfile
+} from './player-profiles.js';
+import {
   DRAWING_POOL_ELIGIBLE_SQL,
   DRAWING_POOL_HISTORY_SQL,
   DRAWING_POOL_EXPORT_SQL,
@@ -688,6 +696,7 @@ app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
   const result = await pool.query(`
     SELECT
       a.code,
+      COALESCE(pp.display_name,'') AS display_name,
       COUNT(v.id)::int AS progress,
       COALESCE(
         JSON_AGG(JSON_BUILD_OBJECT('station',v.station,'stage',v.stage) ORDER BY v.stage)
@@ -704,9 +713,10 @@ app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
       COUNT(*) OVER()::int AS total
     FROM access_codes a
     LEFT JOIN players p ON p.code=a.code
+    LEFT JOIN player_profiles pp ON pp.code=a.code
     LEFT JOIN visits v ON v.code=a.code
     WHERE a.status='active' AND a.is_test=FALSE
-    GROUP BY a.code,a.activated_at,p.updated_at
+    GROUP BY a.code,a.activated_at,p.updated_at,pp.display_name
     ORDER BY ${orderBy}
     LIMIT $1 OFFSET $2
   `, [limit, offset]);
@@ -714,6 +724,7 @@ app.get('/api/admin/active-receivers', requireAdmin, async (req, res) => {
   res.json({
     receivers: result.rows.map(row => ({
       accessCode: formatAccessCode(row.code),
+      displayName: row.display_name,
       progress: Number(row.progress),
       route: row.route,
       complete: row.complete,
@@ -742,11 +753,13 @@ app.get('/api/admin/drawing-pool', requireAdmin, async (req, res) => {
     winnersDrawn: Number(winnerCount.rows[0].count),
     eligible: eligible.rows.map(row => ({
       accessCode: formatAccessCode(row.code),
+      displayName: row.display_name,
       completedAt: row.completed_at
     })),
     history: history.rows.map(row => ({
       id: Number(row.id),
       accessCode: formatAccessCode(row.code),
+      displayName: row.display_name,
       operator: row.operator,
       allowRepeat: row.allow_repeat,
       drawnAt: row.drawn_at
@@ -759,6 +772,8 @@ app.post('/api/admin/drawing-pool/draw', requireAdmin, async (req, res) => {
   const winner = await withTransaction(async client => {
     const row = await drawPrizeWinner(client, allowRepeat, req.missionOperator);
     if (!row) return null;
+    const profile = await client.query('SELECT display_name FROM player_profiles WHERE code=$1', [row.code]);
+    row.display_name = profile.rows[0]?.display_name || '';
     await audit(client, 'PRIZE_WINNER_DRAWN', row.code, req.missionOperator, {
       drawId: Number(row.id),
       allowRepeat
@@ -769,6 +784,7 @@ app.post('/api/admin/drawing-pool/draw', requireAdmin, async (req, res) => {
   res.status(201).json({ winner: {
     id: Number(winner.id),
     accessCode: formatAccessCode(winner.code),
+    displayName: winner.display_name,
     operator: winner.operator,
     allowRepeat: winner.allow_repeat,
     drawnAt: winner.drawn_at
@@ -778,10 +794,11 @@ app.post('/api/admin/drawing-pool/draw', requireAdmin, async (req, res) => {
 app.get('/api/admin/drawing-pool.csv', requireAdmin, async (req, res) => {
   const allowRepeat = req.query.allowRepeat === '1';
   const result = await pool.query(DRAWING_POOL_EXPORT_SQL, [allowRepeat]);
-  const lines = ['access_code,final_completed_at,previous_winner'];
+  const lines = ['access_code,display_name,final_completed_at,previous_winner'];
   for (const row of result.rows) {
     lines.push([
       csvCell(formatAccessCode(row.code)),
+      csvCell(row.display_name),
       csvCell(new Date(row.completed_at).toISOString()),
       row.previous_winner ? 'true' : 'false'
     ].join(','));
@@ -792,6 +809,59 @@ app.get('/api/admin/drawing-pool.csv', requireAdmin, async (req, res) => {
     'Cache-Control': 'no-store'
   });
   res.send(`${lines.join('\r\n')}\r\n`);
+});
+
+app.get('/api/admin/player-profile-search', requireAdmin, async (req, res) => {
+  const query = normalizeProfileSearch(req.query.q);
+  if (!query) return res.json({ results: [] });
+  const result = await pool.query(
+    `SELECT pp.code,pp.display_name,a.is_test
+     FROM player_profiles pp
+     JOIN access_codes a ON a.code=pp.code
+     WHERE LOWER(pp.display_name) LIKE LOWER($1)
+     ORDER BY LOWER(pp.display_name),pp.code
+     LIMIT 20`,
+    [`%${query}%`]
+  );
+  res.json({ results: result.rows.map(row => ({
+    accessCode: formatAccessCode(row.code),
+    displayName: row.display_name,
+    test: row.is_test
+  })) });
+});
+
+app.get('/api/admin/player-profile/:code', requireAdmin, async (req, res) => {
+  const code = normalizeAccessCode(req.params.code);
+  const access = code && await pool.query('SELECT code FROM access_codes WHERE code=$1', [code]);
+  if (!access?.rows[0]) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
+  const result = await pool.query('SELECT * FROM player_profiles WHERE code=$1', [code]);
+  res.json({ accessCode: formatAccessCode(code), profile: publicProfile(result.rows[0]) });
+});
+
+app.put('/api/admin/player-profile/:code', requireAdmin, async (req, res) => {
+  const code = normalizeAccessCode(req.params.code);
+  const profile = normalizeProfileInput(req.body);
+  if (!code || !profile) return res.status(400).json({ error: 'INVALID_PLAYER_PROFILE' });
+  const saved = await withTransaction(async client => {
+    if (!await lockProfileAccessCode(client, code)) return null;
+    const result = await upsertPlayerProfile(client, code, profile);
+    await audit(client, 'PLAYER_PROFILE_UPDATED', code, req.missionOperator, { displayName: profile.displayName });
+    return result;
+  });
+  if (!saved) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
+  res.json({ accessCode: formatAccessCode(code), profile: publicProfile(saved) });
+});
+
+app.delete('/api/admin/player-profile/:code', requireAdmin, async (req, res) => {
+  const code = normalizeAccessCode(req.params.code);
+  const cleared = await withTransaction(async client => {
+    if (!code || !await lockProfileAccessCode(client, code)) return false;
+    await deletePlayerProfile(client, code);
+    await audit(client, 'PLAYER_PROFILE_CLEARED', code, req.missionOperator);
+    return true;
+  });
+  if (!cleared) return res.status(404).json({ error: 'PLAYER_NOT_FOUND' });
+  res.json({ ok: true, accessCode: formatAccessCode(code) });
 });
 
 app.post('/api/admin/codes/issue', requireAdmin, async (req, res) => {
